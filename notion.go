@@ -85,9 +85,16 @@ func CreateNotionTask(token, dbID, taskName, assignee, description string) error
 		payload.Children = children
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("could not marshal request: %w", err)
+	}
 
-	req, _ := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("could not create a request: %w", err)
+	}
+
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
@@ -100,7 +107,7 @@ func CreateNotionTask(token, dbID, taskName, assignee, description string) error
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("Notion API error: %s", resp.Status)
+		return fmt.Errorf("notion API error: %s", resp.Status)
 	}
 
 	return nil

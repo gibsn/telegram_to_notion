@@ -72,18 +72,17 @@ func (p *RequestProcessor) processRequests() {
 			log.Printf("Could not send message to Telegram: %v", err)
 		}
 	}
-
 }
 
 func (p *RequestProcessor) createTask(taskName, name, description string) error {
 	assignee := p.nameResolver.Resolve(name)
 	if assignee == "" {
-		return fmt.Errorf("Unknown assignee %s", name)
+		return fmt.Errorf("unknown assignee %s", name)
 	}
 
 	err := CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
 	if err != nil {
-		return fmt.Errorf("Error creating a task in Notion: %w", err)
+		return fmt.Errorf("error creating a task in Notion: %w", err)
 	}
 
 	return nil
