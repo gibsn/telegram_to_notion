@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -29,7 +30,7 @@ func NewUserResolver() *UserResolver {
 }
 
 func (r *UserResolver) Resolve(tgName string) string {
-	return r.mapping[tgName]
+	return r.mapping[strings.TrimSpace(tgName)]
 }
 
 type NotionPayload struct {

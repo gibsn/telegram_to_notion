@@ -9,6 +9,9 @@ lint: bin/golangci-lint
 	bin/golangci-lint run -v -c ./build/ci/golangci.yml \
 		--new-from-rev=$(TARGET_BRANCH)                 \
 
+install: lint clean telegram_to_notion
+	go install ./...
+
 clean:
 	rm -rf bin/
 
