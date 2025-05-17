@@ -59,12 +59,14 @@ func (p *RequestProcessor) processRequests() {
 			description = strings.Join(lines[2:], "\n")
 		}
 
-		reply := "Task has been successfully created"
+		var reply string
 
-		err := p.createTask(taskName, assignee, description)
+		url, err := p.createTask(taskName, assignee, description)
 		if err != nil {
 			log.Printf("error: %s", err)
 			reply = err.Error()
+		} else {
+			reply = fmt.Sprintf("Task has been successfully created:\n%s", url)
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
@@ -74,18 +76,18 @@ func (p *RequestProcessor) processRequests() {
 	}
 }
 
-func (p *RequestProcessor) createTask(taskName, name, description string) error {
+func (p *RequestProcessor) createTask(taskName, name, description string) (string, error) {
 	assignee := p.nameResolver.Resolve(name)
 	if assignee == "" {
-		return fmt.Errorf("unknown assignee %s", name)
+		return "", fmt.Errorf("unknown assignee %s", name)
 	}
 
-	err := CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
+	url, err := CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
 	if err != nil {
-		return fmt.Errorf("error creating a task in Notion: %w", err)
+		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}
 
-	return nil
+	return url, nil
 }
 
 func main() {

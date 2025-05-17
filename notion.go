@@ -33,7 +33,7 @@ func (r *UserResolver) Resolve(tgName string) string {
 	return r.mapping[strings.TrimSpace(tgName)]
 }
 
-type NotionPayload struct {
+type notionPayload struct {
 	Parent struct {
 		DatabaseID string `json:"database_id"`
 	} `json:"parent"`
@@ -41,9 +41,14 @@ type NotionPayload struct {
 	Children   []map[string]interface{} `json:"children,omitempty"`
 }
 
-func CreateNotionTask(token, dbID, taskName, assignee, description string) error {
-	payload := NotionPayload{}
+type notionResult struct {
+	ID string `json:"id"`
+}
+
+func newNotionPayload(token, dbID, taskName, assignee, description string) *notionPayload {
+	payload := &notionPayload{}
 	payload.Parent.DatabaseID = dbID
+
 	payload.Properties = map[string]interface{}{
 		"Задача": map[string]interface{}{
 			"title": []map[string]interface{}{
@@ -86,14 +91,20 @@ func CreateNotionTask(token, dbID, taskName, assignee, description string) error
 		payload.Children = children
 	}
 
+	return payload
+}
+
+func CreateNotionTask(token, dbID, taskName, assignee, description string) (string, error) {
+	payload := newNotionPayload(token, dbID, taskName, assignee, description)
+
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("could not marshal request: %w", err)
+		return "", fmt.Errorf("could not marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
 	if err != nil {
-		return fmt.Errorf("could not create a request: %w", err)
+		return "", fmt.Errorf("could not create a request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -102,14 +113,23 @@ func CreateNotionTask(token, dbID, taskName, assignee, description string) error
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("notion API error: %s", resp.Status)
+		return "", fmt.Errorf("notion API error: %s", resp.Status)
 	}
 
-	return nil
+	var result notionResult
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	cleanID := strings.ReplaceAll(result.ID, "-", "")
+	url := fmt.Sprintf("https://www.notion.so/%s", cleanID)
+
+	return url, nil
 }
