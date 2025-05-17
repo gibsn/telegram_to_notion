@@ -45,7 +45,7 @@ type notionResult struct {
 	ID string `json:"id"`
 }
 
-func newNotionPayload(token, dbID, taskName, assignee, description string) *notionPayload {
+func newNotionPayload(dbID, taskName, assignee, description string) *notionPayload {
 	payload := &notionPayload{}
 	payload.Parent.DatabaseID = dbID
 
@@ -95,7 +95,7 @@ func newNotionPayload(token, dbID, taskName, assignee, description string) *noti
 }
 
 func CreateNotionTask(token, dbID, taskName, assignee, description string) (string, error) {
-	payload := newNotionPayload(token, dbID, taskName, assignee, description)
+	payload := newNotionPayload(dbID, taskName, assignee, description)
 
 	body, err := json.Marshal(payload)
 	if err != nil {

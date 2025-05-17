@@ -1,0 +1,32 @@
+name: "Build, run linters and unit tests"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  build-test-lint-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: Build
+      run: make
+
+    - name: Lint
+      uses: golangci/golangci-lint-action@v2
+      with:
+        version: v1.64.8
+        args: "-c ./build/ci/golangci.yml"
+        only-new-issues: true
+        skip-go-installation: true
+
+    - name: Test
+      run: make test

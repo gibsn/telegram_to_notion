@@ -15,5 +15,8 @@ install: lint clean telegram_to_notion
 clean:
 	rm -rf bin/
 
+test:
+	echo "no tests yet"
+
 .PHONY: telegram_to_notion lint clean
 
