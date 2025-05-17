@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/gibsn/telegram_to_notion/internal/notion"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -14,7 +15,7 @@ type RequestProcessor struct {
 	notionDBID  string
 
 	bot          *tgbotapi.BotAPI
-	nameResolver *UserResolver
+	nameResolver *notion.UserResolver
 }
 
 func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProcessor {
@@ -24,7 +25,7 @@ func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProce
 		bot:         bot,
 	}
 
-	p.nameResolver = NewUserResolver()
+	p.nameResolver = notion.NewUserResolver()
 
 	return p
 }
@@ -82,7 +83,7 @@ func (p *RequestProcessor) createTask(taskName, name, description string) (strin
 		return "", fmt.Errorf("unknown assignee %s", name)
 	}
 
-	url, err := CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
+	url, err := notion.CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}

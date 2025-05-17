@@ -1,5 +1,5 @@
 telegram_to_notion:
-	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion
+	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion/cmd/telegram_to_notion
 
 bin/golangci-lint:
 	@echo "getting golangci-lint for $$(uname -m)/$$(uname -s)"
