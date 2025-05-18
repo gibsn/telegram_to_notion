@@ -9,30 +9,6 @@ import (
 	"time"
 )
 
-type UserResolver struct {
-	mapping map[string]string
-}
-
-func NewUserResolver() *UserResolver {
-	r := &UserResolver{}
-
-	r.mapping = map[string]string{
-		"@alexander_zh": "9e8f4963-fd1c-4bb5-bdd2-7f29a9a8698a",
-		"@vomadan":      "0724b18e-320d-4fce-87f6-95d69b51c2c0",
-		"@fenyakolles":  "78694531-146f-4abd-b29b-093278cab708",
-		"@nikitacmc":    "e6f7887a-7123-4a83-a5da-ded24467d5e2",
-		"@Homesick94":   "3c02801c-1a5a-428f-b217-6d53032a21c9",
-		"@bond_lullaby": "aea80e9c-7a69-4180-8a38-6d274af25f4c",
-		"@gibsn":        "7439e2ca-75f8-4024-b170-620ef7ed08b1",
-	}
-
-	return r
-}
-
-func (r *UserResolver) Resolve(tgName string) string {
-	return r.mapping[strings.TrimSpace(tgName)]
-}
-
 type notionPayload struct {
 	Parent struct {
 		DatabaseID string `json:"database_id"`

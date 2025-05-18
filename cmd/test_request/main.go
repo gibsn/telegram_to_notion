@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
-
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -31,5 +31,19 @@ func main() {
 	log.Printf("Successfully connected to Telegram")
 
 	p := requestprocessor.NewRequestProcessor(notionToken, notionDBID, bot)
-	p.ProcessRequests()
+
+	var reply string
+
+	url, err := p.CreateTask("test_task", "@gibsn", "test_description")
+	if err != nil {
+		log.Printf("error: %s", err)
+		reply = err.Error()
+	} else {
+		reply = fmt.Sprintf("Task has been successfully created:\n%s", url)
+	}
+
+	msg := tgbotapi.NewMessage(51451990, reply)
+	if _, err := bot.Send(msg); err != nil {
+		log.Printf("Could not send message to Telegram: %v", err)
+	}
 }

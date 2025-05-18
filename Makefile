@@ -1,6 +1,9 @@
 telegram_to_notion:
 	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion/cmd/telegram_to_notion
 
+test_request:
+	go build -mod vendor -o ./bin/test_request github.com/gibsn/telegram_to_notion/cmd/test_request
+
 bin/golangci-lint:
 	@echo "getting golangci-lint for $$(uname -m)/$$(uname -s)"
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.64.8
