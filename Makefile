@@ -21,7 +21,7 @@ clean:
 	rm -rf bin/
 
 test:
-	echo "no tests yet"
+	go test ./...
 
-.PHONY: all test_request telegram_to_notion lint clean
+.PHONY: all test_request telegram_to_notion lint clean test
 

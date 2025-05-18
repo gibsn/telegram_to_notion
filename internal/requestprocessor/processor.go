@@ -75,20 +75,53 @@ func (p *RequestProcessor) SetDebug(debug bool) {
 	p.debug = debug
 }
 
+func parseTelegramRequest(update tgbotapi.Update) (
+	*notion.CreateTaskRequest, error,
+) {
+	req, err := parseTelegramRequestMessage(update.Message.Text)
+
+	return req, err
+}
+
+func parseTelegramRequestMessage(text string) (
+	*notion.CreateTaskRequest, error,
+) {
+	if !strings.HasPrefix(text, "/task") {
+		return nil, fmt.Errorf("unknown command")
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("Please provide the task's name and an assignee")
+	}
+
+	taskName := strings.TrimPrefix(lines[0], "/task ")
+
+	description := ""
+	if len(lines) > 2 {
+		description = strings.Join(lines[2:], "\n")
+	}
+
+	req := notion.NewCreateTaskRequest()
+	req.TaskName = taskName
+	req.Description = description
+	req.Assignees = strings.Fields(lines[1])
+
+	return req, nil
+}
+
 func (p *RequestProcessor) ProcessRequests() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	for update := range p.bot.GetUpdatesChan(u) {
-		if update.Message == nil || !strings.HasPrefix(update.Message.Text, "/task") {
+		if update.Message == nil {
 			continue
 		}
 
-		lines := strings.Split(update.Message.Text, "\n")
-		if len(lines) < 2 {
-			msg := tgbotapi.NewMessage(
-				update.Message.Chat.ID, "Please provide the task's name and an assignee",
-			)
+		req, err := parseTelegramRequest(update)
+		if err != nil {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
 
 			if _, err := p.bot.Send(msg); err != nil {
 				log.Printf("Could not send message to Telegram: %v", err)
@@ -97,17 +130,9 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
-		taskName := strings.TrimPrefix(lines[0], "/task ")
-		assignees := strings.Split(lines[1], " ")
-
-		description := ""
-		if len(lines) > 2 {
-			description = strings.Join(lines[2:], "\n")
-		}
-
 		var reply string
 
-		url, err := p.CreateTask(taskName, description, assignees)
+		url, err := p.CreateTask(req)
 		if err != nil {
 			log.Printf("error: %s", err)
 			reply = err.Error()
@@ -122,27 +147,22 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) CreateTask(
-	taskName, description string,
-	assignees []string,
-) (string, error) {
-	assigneesResolved, err := p.nameResolver.ResolveArr(assignees)
+func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, error) {
+	req.NotionToken = p.notionToken
+	req.NotionDBID = p.notionDBID
+
+	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
 	if err != nil {
 		return "", err
 	}
 
-	createRequest := notion.NewCreateTaskRequest()
-	createRequest.NotionToken = p.notionToken
-	createRequest.NotionDBID = p.notionDBID
-	createRequest.Assignees = assigneesResolved
-	createRequest.TaskName = taskName
-	createRequest.Description = description
+	req.Assignees = assigneesResolved
 
 	if p.debug {
-		createRequest.Debug = true
+		req.Debug = true
 	}
 
-	url, err := notion.CreateNotionTask(createRequest)
+	url, err := notion.CreateNotionTask(req)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}

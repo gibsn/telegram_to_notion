@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -35,7 +36,12 @@ func main() {
 
 	var reply string
 
-	url, err := p.CreateTask("test_task", "test_description", []string{"@gibsn"})
+	req := notion.NewCreateTaskRequest()
+	req.TaskName = "test_task"
+	req.Description = "test_description"
+	req.Assignees = []string{"@gibsn"}
+
+	url, err := p.CreateTask(req)
 	if err != nil {
 		log.Printf("error: %s", err)
 		reply = err.Error()
