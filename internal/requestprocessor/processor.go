@@ -138,7 +138,7 @@ func parseTelegramRequestMessage(text string, isPrivate bool) (
 
 	// the third line is only present in public chats and is optional. it contains
 	// description if present
-	if len(lines) >= 3 {
+	if len(lines) >= 3 && !isPrivate {
 		req.Description = strings.Join(lines[2:], "\n")
 	}
 

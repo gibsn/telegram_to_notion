@@ -116,6 +116,18 @@ test_description`,
 				Description: "test_description",
 			},
 		},
+		{
+			name: "private: assignee is present by mistake, so it goes to description",
+			input: `/task test_task
+@gibsn
+test_description`,
+			isPrivate: true,
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   nil,
+				Description: "@gibsn\ntest_description",
+			},
+		},
 	}
 
 	for _, tt := range tests {
