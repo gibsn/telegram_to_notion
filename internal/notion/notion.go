@@ -105,7 +105,7 @@ func CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	}
 
 	if r.Debug {
-		prettyPayload, _ := json.MarshalIndent(payload, "", "  ")
+		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
 		log.Println(string(prettyPayload))
 	}
 

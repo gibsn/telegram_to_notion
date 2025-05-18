@@ -45,15 +45,15 @@ func (r *UserResolver) Resolve(tgName string) string {
 }
 
 func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
-	resolved := make([]string, len(tgNames), len(tgNames))
+	resolved := make([]string, len(tgNames))
 
-	for i, tgName := range tgNames {
+	for _, tgName := range tgNames {
 		resolvedName := r.Resolve(tgName)
 		if resolvedName == "" {
 			return nil, fmt.Errorf("login unknown: %s", tgName)
 		}
 
-		resolved[i] = resolvedName
+		resolved = append(resolved, resolvedName)
 	}
 
 	return resolved, nil
@@ -92,7 +92,7 @@ func parseTelegramRequestMessage(text string) (
 
 	lines := strings.Split(text, "\n")
 	if len(lines) < 2 {
-		return nil, fmt.Errorf("Please provide the task's name and an assignee")
+		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
 	taskName := strings.TrimPrefix(lines[0], "/task ")
