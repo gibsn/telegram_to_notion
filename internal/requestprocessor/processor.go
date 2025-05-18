@@ -11,8 +11,8 @@ import (
 )
 
 type RequestProcessor struct {
-	notionToken string
-	notionDBID  string
+	notion     *notion.Notion
+	notionDBID string
 
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
@@ -61,11 +61,13 @@ func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
 	return resolved, nil
 }
 
-func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProcessor {
+func NewRequestProcessor(
+	notion *notion.Notion, dbid string, bot *tgbotapi.BotAPI,
+) *RequestProcessor {
 	p := &RequestProcessor{
-		notionToken: token,
-		notionDBID:  dbid,
-		bot:         bot,
+		notion:     notion,
+		notionDBID: dbid,
+		bot:        bot,
 	}
 
 	p.nameResolver = NewUserResolver()
@@ -183,7 +185,6 @@ func (p *RequestProcessor) ProcessRequests() {
 }
 
 func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, error) {
-	req.NotionToken = p.notionToken
 	req.NotionDBID = p.notionDBID
 
 	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
@@ -197,7 +198,7 @@ func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, er
 		req.Debug = true
 	}
 
-	url, err := notion.CreateNotionTask(req)
+	url, err := p.notion.CreateNotionTask(req)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}

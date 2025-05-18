@@ -10,9 +10,13 @@ import (
 	"time"
 )
 
+const (
+	retriesNotionAPI = 2
+	timeoutNotionAPI = 10 * time.Second
+)
+
 type CreateTaskRequest struct {
-	NotionToken string
-	NotionDBID  string
+	NotionDBID string
 
 	TaskName    string
 	Assignees   []string
@@ -96,7 +100,24 @@ func newNotionPayload(createRequest *CreateTaskRequest) *notionPayload {
 	return payload
 }
 
-func CreateNotionTask(r *CreateTaskRequest) (string, error) {
+type Notion struct {
+	token string
+
+	client *http.Client
+}
+
+func NewNotion(token string) *Notion {
+	n := &Notion{
+		token: token,
+		client: &http.Client{
+			Timeout: timeoutNotionAPI,
+		},
+	}
+
+	return n
+}
+
+func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	payload := newNotionPayload(r)
 
 	body, err := json.Marshal(payload)
@@ -114,19 +135,31 @@ func CreateNotionTask(r *CreateTaskRequest) (string, error) {
 		return "", fmt.Errorf("could not create a request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+r.NotionToken)
+	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
+	var resp *http.Response
 
-	defer resp.Body.Close()
+	for i := 1; i <= retriesNotionAPI; i++ {
+		resp, err = n.client.Do(req)
 
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("notion API error: %s", resp.Status)
+		if err != nil || resp.StatusCode >= 300 {
+			log.Printf("request to Notion API failed: %s", err)
+			if resp != nil {
+				resp.Body.Close()
+			}
+
+			if i < retriesNotionAPI {
+				log.Printf("retrying request to Notion API")
+				continue
+			}
+
+			return "", fmt.Errorf("request to Notion API failed: %w", err)
+		}
+
+		defer resp.Body.Close()
+		break
 	}
 
 	var result notionResult

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/gibsn/telegram_to_notion/internal/notion"
+	notionapi "github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -31,12 +32,14 @@ func main() {
 
 	log.Printf("Successfully connected to Telegram")
 
-	p := requestprocessor.NewRequestProcessor(notionToken, notionDBID, bot)
+	notion := notionapi.NewNotion(notionToken)
+
+	p := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
 	p.SetDebug(true)
 
 	var reply string
 
-	req := notion.NewCreateTaskRequest()
+	req := notionapi.NewCreateTaskRequest()
 	req.TaskName = "test_task"
 	req.Description = "test_description"
 	req.Assignees = []string{"@gibsn"}
