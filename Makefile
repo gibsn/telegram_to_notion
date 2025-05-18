@@ -1,3 +1,5 @@
+all: telegram_to_notion test_request
+
 telegram_to_notion:
 	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion/cmd/telegram_to_notion
 
@@ -21,5 +23,5 @@ clean:
 test:
 	echo "no tests yet"
 
-.PHONY: telegram_to_notion lint clean
+.PHONY: all test_request telegram_to_notion lint clean
 

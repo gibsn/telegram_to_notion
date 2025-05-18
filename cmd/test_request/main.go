@@ -31,10 +31,11 @@ func main() {
 	log.Printf("Successfully connected to Telegram")
 
 	p := requestprocessor.NewRequestProcessor(notionToken, notionDBID, bot)
+	p.SetDebug(true)
 
 	var reply string
 
-	url, err := p.CreateTask("test_task", "@gibsn", "test_description")
+	url, err := p.CreateTask("test_task", "test_description", []string{"@gibsn"})
 	if err != nil {
 		log.Printf("error: %s", err)
 		reply = err.Error()

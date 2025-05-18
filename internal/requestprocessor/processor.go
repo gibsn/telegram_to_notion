@@ -16,6 +16,8 @@ type RequestProcessor struct {
 
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
+
+	debug bool
 }
 
 type UserResolver struct {
@@ -42,6 +44,21 @@ func (r *UserResolver) Resolve(tgName string) string {
 	return r.mapping[strings.TrimSpace(tgName)]
 }
 
+func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
+	resolved := make([]string, len(tgNames), len(tgNames))
+
+	for i, tgName := range tgNames {
+		resolvedName := r.Resolve(tgName)
+		if resolvedName == "" {
+			return nil, fmt.Errorf("login unknown: %s", tgName)
+		}
+
+		resolved[i] = resolvedName
+	}
+
+	return resolved, nil
+}
+
 func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProcessor {
 	p := &RequestProcessor{
 		notionToken: token,
@@ -52,6 +69,10 @@ func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProce
 	p.nameResolver = NewUserResolver()
 
 	return p
+}
+
+func (p *RequestProcessor) SetDebug(debug bool) {
+	p.debug = debug
 }
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -77,7 +98,7 @@ func (p *RequestProcessor) ProcessRequests() {
 		}
 
 		taskName := strings.TrimPrefix(lines[0], "/task ")
-		assignee := lines[1]
+		assignees := strings.Split(lines[1], " ")
 
 		description := ""
 		if len(lines) > 2 {
@@ -86,7 +107,7 @@ func (p *RequestProcessor) ProcessRequests() {
 
 		var reply string
 
-		url, err := p.CreateTask(taskName, assignee, description)
+		url, err := p.CreateTask(taskName, description, assignees)
 		if err != nil {
 			log.Printf("error: %s", err)
 			reply = err.Error()
@@ -101,13 +122,27 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) CreateTask(taskName, name, description string) (string, error) {
-	assignee := p.nameResolver.Resolve(name)
-	if assignee == "" {
-		return "", fmt.Errorf("unknown assignee %s", name)
+func (p *RequestProcessor) CreateTask(
+	taskName, description string,
+	assignees []string,
+) (string, error) {
+	assigneesResolved, err := p.nameResolver.ResolveArr(assignees)
+	if err != nil {
+		return "", err
 	}
 
-	url, err := notion.CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
+	createRequest := notion.NewCreateTaskRequest()
+	createRequest.NotionToken = p.notionToken
+	createRequest.NotionDBID = p.notionDBID
+	createRequest.Assignees = assigneesResolved
+	createRequest.TaskName = taskName
+	createRequest.Description = description
+
+	if p.debug {
+		createRequest.Debug = true
+	}
+
+	url, err := notion.CreateNotionTask(createRequest)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}
