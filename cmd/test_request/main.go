@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	notionapi "github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
@@ -49,7 +50,11 @@ func main() {
 		log.Printf("error: %s", err)
 		reply = err.Error()
 	} else {
-		reply = fmt.Sprintf("Task has been successfully created:\n%s", url)
+		reply = fmt.Sprintf(
+			"Task has been successfully created and assigned to %s:\n%s",
+			strings.Join([]string{"@gibsn"}, ","),
+			url,
+		)
 	}
 
 	msg := tgbotapi.NewMessage(51451990, reply)

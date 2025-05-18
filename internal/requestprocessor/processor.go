@@ -174,7 +174,11 @@ func (p *RequestProcessor) ProcessRequests() {
 			log.Printf("error: %s", err)
 			reply = err.Error()
 		} else {
-			reply = fmt.Sprintf("Task has been successfully created:\n%s", url)
+			reply = fmt.Sprintf(
+				"Task has been successfully created and assigned to %s:\n%s",
+				strings.Join(req.Assignees, ","),
+				url,
+			)
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
@@ -192,13 +196,14 @@ func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, er
 		return "", err
 	}
 
-	req.Assignees = assigneesResolved
+	reqCopy := *req
+	reqCopy.Assignees = assigneesResolved
 
 	if p.debug {
 		req.Debug = true
 	}
 
-	url, err := p.notion.CreateNotionTask(req)
+	url, err := p.notion.CreateNotionTask(&reqCopy)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}
