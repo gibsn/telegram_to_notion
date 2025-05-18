@@ -17,6 +17,8 @@ type RequestProcessor struct {
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
 
+	allowedToCreate map[string]bool
+
 	debug bool
 }
 
@@ -32,20 +34,20 @@ func NewUserResolver() *UserResolver {
 		"@vomadan":      "0724b18e-320d-4fce-87f6-95d69b51c2c0",
 		"@fenyakolles":  "78694531-146f-4abd-b29b-093278cab708",
 		"@nikitacmc":    "e6f7887a-7123-4a83-a5da-ded24467d5e2",
-		"@Homesick94":   "3c02801c-1a5a-428f-b217-6d53032a21c9",
-		"@bond_lullaby": "aea80e9c-7a69-4180-8a38-6d274af25f4c",
+		"@homesick94":   "3c02801c-1a5a-428f-b217-6d53032a21c9",
 		"@gibsn":        "7439e2ca-75f8-4024-b170-620ef7ed08b1",
+		"@bond_lullaby": "aea80e9c-7a69-4180-8a38-6d274af25f4c",
 	}
 
 	return r
 }
 
 func (r *UserResolver) Resolve(tgName string) string {
-	return r.mapping[strings.TrimSpace(tgName)]
+	return r.mapping[strings.ToLower(strings.TrimSpace(tgName))]
 }
 
 func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
-	resolved := make([]string, len(tgNames))
+	resolved := make([]string, 0, len(tgNames))
 
 	for _, tgName := range tgNames {
 		resolvedName := r.Resolve(tgName)
@@ -67,6 +69,14 @@ func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProce
 	}
 
 	p.nameResolver = NewUserResolver()
+	p.allowedToCreate = map[string]bool{
+		"alexander_zh": true,
+		"vomadan":      true,
+		"fenyakolles":  true,
+		"nikitacmc":    true,
+		"homesick94":   true,
+		"gibsn":        true,
+	}
 
 	return p
 }
@@ -75,9 +85,14 @@ func (p *RequestProcessor) SetDebug(debug bool) {
 	p.debug = debug
 }
 
-func parseTelegramRequest(update tgbotapi.Update) (
+func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Update) (
 	*notion.CreateTaskRequest, error,
 ) {
+	fromUserName := strings.ToLower(update.Message.From.UserName)
+	if !p.allowedToCreate[fromUserName] {
+		return nil, fmt.Errorf("user %s is not allowed to create tasks", fromUserName)
+	}
+
 	req, err := parseTelegramRequestMessage(update.Message.Text)
 
 	return req, err
@@ -119,7 +134,7 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
-		req, err := parseTelegramRequest(update)
+		req, err := p.parseAndValidateTelegramRequest(update)
 		if err != nil {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
 
