@@ -1,9 +1,9 @@
 all: telegram_to_notion test_request
 
-telegram_to_notion:
+telegram_to_notion: test
 	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion/cmd/telegram_to_notion
 
-test_request:
+test_request: test
 	go build -mod vendor -o ./bin/test_request github.com/gibsn/telegram_to_notion/cmd/test_request
 
 bin/golangci-lint:
@@ -14,7 +14,7 @@ lint: bin/golangci-lint
 	bin/golangci-lint run -v -c ./build/ci/golangci.yml \
 		--new-from-rev=$(TARGET_BRANCH)                 \
 
-install: lint clean telegram_to_notion
+install: lint test clean telegram_to_notion
 	go install ./...
 
 clean:
