@@ -12,14 +12,17 @@ func TestParseTelegramRequestMessage(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
+		isPrivate bool
 		want      *notion.CreateTaskRequest
 		expectErr bool
 	}{
+		// isPrivate = false
 		{
-			name: "один исполнитель, с описанием",
+			name: "one assignee, description present",
 			input: `/task test_task
 @gibsn
 test_description`,
+			isPrivate: false,
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
 				Assignees:   []string{"@gibsn"},
@@ -27,10 +30,22 @@ test_description`,
 			},
 		},
 		{
-			name: "два исполнителя через пробел",
+			name: "one assignee, no description present",
+			input: `/task test_task
+@gibsn`,
+			isPrivate: false,
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   []string{"@gibsn"},
+				Description: "",
+			},
+		},
+		{
+			name: "multiple assignees, description present",
 			input: `/task test_task
 @gibsn @alexander_zh
 test_description`,
+			isPrivate: false,
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
 				Assignees:   []string{"@gibsn", "@alexander_zh"},
@@ -38,28 +53,74 @@ test_description`,
 			},
 		},
 		{
-			name: "два исполнителя с несколькими пробелами",
+			name: "multiple assignees, no description present",
 			input: `/task test_task
-@gibsn    @alexander_zh
-test_description`,
+@gibsn @alexander_zh`,
+			isPrivate: false,
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
 				Assignees:   []string{"@gibsn", "@alexander_zh"},
-				Description: "test_description",
+				Description: "",
 			},
 		},
 		{
-			name: "ошибка: нет /task",
+			name: "multiple assignees separated with multiple spaces",
+			input: `/task test_task
+@gibsn      @alexander_zh`,
+			isPrivate: false,
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   []string{"@gibsn", "@alexander_zh"},
+				Description: "",
+			},
+		},
+		{
+			name: "error: no /task",
 			input: `test_task
 @gibsn
 test_description`,
+			isPrivate: false,
 			expectErr: true,
+		},
+		{
+			name:      "error: no task name",
+			input:     `/task  `,
+			expectErr: true,
+		},
+		{
+			name: "error: no task name but description is present",
+			input: `/task
+test_description`,
+			expectErr: true,
+		},
+
+		// isPrivate = true
+		{
+			name:      "private: only task name",
+			input:     `/task test_task`,
+			isPrivate: true,
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   nil,
+				Description: "",
+			},
+		},
+		{
+			name: "private: only task name and description",
+			input: `/task test_task
+test_description`,
+			isPrivate: true,
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   nil,
+				Description: "test_description",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseTelegramRequestMessage(tt.input)
+			got, err := parseTelegramRequestMessage(tt.input, tt.isPrivate)
 
 			if tt.expectErr {
 				assert.Error(t, err)

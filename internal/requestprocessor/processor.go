@@ -89,16 +89,23 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 	*notion.CreateTaskRequest, error,
 ) {
 	fromUserName := strings.ToLower(update.Message.From.UserName)
+	isPrivate := update.Message.Chat.IsPrivate()
+
 	if !p.allowedToCreate[fromUserName] {
 		return nil, fmt.Errorf("user %s is not allowed to create tasks", fromUserName)
 	}
 
-	req, err := parseTelegramRequestMessage(update.Message.Text)
+	req, err := parseTelegramRequestMessage(update.Message.Text, isPrivate)
+
+	// set assignee to the sender if the message came from direct messages
+	if isPrivate {
+		req.Assignees = []string{"@" + fromUserName}
+	}
 
 	return req, err
 }
 
-func parseTelegramRequestMessage(text string) (
+func parseTelegramRequestMessage(text string, isPrivate bool) (
 	*notion.CreateTaskRequest, error,
 ) {
 	if !strings.HasPrefix(text, "/task") {
@@ -106,21 +113,34 @@ func parseTelegramRequestMessage(text string) (
 	}
 
 	lines := strings.Split(text, "\n")
-	if len(lines) < 2 {
+
+	if !isPrivate && len(lines) < 2 {
 		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
-	taskName := strings.TrimPrefix(lines[0], "/task ")
+	req := notion.NewCreateTaskRequest()
 
-	description := ""
-	if len(lines) > 2 {
-		description = strings.Join(lines[2:], "\n")
+	// the first line is the command itself and it has the task's name
+	req.TaskName = strings.TrimSpace(strings.TrimPrefix(lines[0], "/task"))
+	if len(req.TaskName) == 0 {
+		return nil, fmt.Errorf("please provide the task's name")
 	}
 
-	req := notion.NewCreateTaskRequest()
-	req.TaskName = taskName
-	req.Description = description
-	req.Assignees = strings.Fields(lines[1])
+	// the second line is the assignee if the message came from the public chat. if the
+	// message came from direct messages then the assignee is set to the sender
+	if len(lines) >= 2 {
+		if isPrivate {
+			req.Description = strings.Join(lines[1:], "\n")
+		} else {
+			req.Assignees = strings.Fields(lines[1])
+		}
+	}
+
+	// the third line is only present in public chats and is optional. it contains
+	// description if present
+	if len(lines) >= 3 {
+		req.Description = strings.Join(lines[2:], "\n")
+	}
 
 	return req, nil
 }
