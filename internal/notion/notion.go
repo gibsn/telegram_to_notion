@@ -4,10 +4,26 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 )
+
+type CreateTaskRequest struct {
+	NotionToken string
+	NotionDBID  string
+
+	TaskName    string
+	Assignees   []string
+	Description string
+
+	Debug bool
+}
+
+func NewCreateTaskRequest() *CreateTaskRequest {
+	return &CreateTaskRequest{}
+}
 
 type notionPayload struct {
 	Parent struct {
@@ -21,19 +37,14 @@ type notionResult struct {
 	ID string `json:"id"`
 }
 
-func newNotionPayload(dbID, taskName, assignee, description string) *notionPayload {
+func newNotionPayload(createRequest *CreateTaskRequest) *notionPayload {
 	payload := &notionPayload{}
-	payload.Parent.DatabaseID = dbID
+	payload.Parent.DatabaseID = createRequest.NotionDBID
 
 	payload.Properties = map[string]interface{}{
 		"Задача": map[string]interface{}{
 			"title": []map[string]interface{}{
-				{"text": map[string]string{"content": taskName}},
-			},
-		},
-		"Исполнитель": map[string]interface{}{
-			"people": []map[string]string{
-				{"object": "user", "id": assignee},
+				{"text": map[string]string{"content": createRequest.TaskName}},
 			},
 		},
 		"_timeWhenMovedToWork": map[string]interface{}{
@@ -47,7 +58,22 @@ func newNotionPayload(dbID, taskName, assignee, description string) *notionPaylo
 			},
 		},
 	}
-	if description != "" {
+
+	if len(createRequest.Assignees) > 0 {
+		assigneesPayload := make([]map[string]string, len(createRequest.Assignees))
+		for i, id := range createRequest.Assignees {
+			assigneesPayload[i] = map[string]string{
+				"object": "user",
+				"id":     id,
+			}
+		}
+
+		payload.Properties["Исполнитель"] = map[string]interface{}{
+			"people": assigneesPayload,
+		}
+	}
+
+	if createRequest.Description != "" {
 		children := []map[string]interface{}{
 			{
 				"object": "block",
@@ -57,7 +83,7 @@ func newNotionPayload(dbID, taskName, assignee, description string) *notionPaylo
 						{
 							"type": "text",
 							"text": map[string]string{
-								"content": description,
+								"content": createRequest.Description,
 							},
 						},
 					},
@@ -70,12 +96,17 @@ func newNotionPayload(dbID, taskName, assignee, description string) *notionPaylo
 	return payload
 }
 
-func CreateNotionTask(token, dbID, taskName, assignee, description string) (string, error) {
-	payload := newNotionPayload(dbID, taskName, assignee, description)
+func CreateNotionTask(r *CreateTaskRequest) (string, error) {
+	payload := newNotionPayload(r)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("could not marshal request: %w", err)
+	}
+
+	if r.Debug {
+		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
+		log.Println(string(prettyPayload))
 	}
 
 	req, err := http.NewRequest("POST", "https://api.notion.com/v1/pages", bytes.NewBuffer(body))
@@ -83,7 +114,7 @@ func CreateNotionTask(token, dbID, taskName, assignee, description string) (stri
 		return "", fmt.Errorf("could not create a request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+r.NotionToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 

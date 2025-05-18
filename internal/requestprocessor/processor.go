@@ -16,6 +16,8 @@ type RequestProcessor struct {
 
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
+
+	debug bool
 }
 
 type UserResolver struct {
@@ -42,6 +44,21 @@ func (r *UserResolver) Resolve(tgName string) string {
 	return r.mapping[strings.TrimSpace(tgName)]
 }
 
+func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
+	resolved := make([]string, len(tgNames))
+
+	for _, tgName := range tgNames {
+		resolvedName := r.Resolve(tgName)
+		if resolvedName == "" {
+			return nil, fmt.Errorf("login unknown: %s", tgName)
+		}
+
+		resolved = append(resolved, resolvedName)
+	}
+
+	return resolved, nil
+}
+
 func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProcessor {
 	p := &RequestProcessor{
 		notionToken: token,
@@ -54,20 +71,57 @@ func NewRequestProcessor(token, dbid string, bot *tgbotapi.BotAPI) *RequestProce
 	return p
 }
 
+func (p *RequestProcessor) SetDebug(debug bool) {
+	p.debug = debug
+}
+
+func parseTelegramRequest(update tgbotapi.Update) (
+	*notion.CreateTaskRequest, error,
+) {
+	req, err := parseTelegramRequestMessage(update.Message.Text)
+
+	return req, err
+}
+
+func parseTelegramRequestMessage(text string) (
+	*notion.CreateTaskRequest, error,
+) {
+	if !strings.HasPrefix(text, "/task") {
+		return nil, fmt.Errorf("unknown command")
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("please provide the task's name and an assignee")
+	}
+
+	taskName := strings.TrimPrefix(lines[0], "/task ")
+
+	description := ""
+	if len(lines) > 2 {
+		description = strings.Join(lines[2:], "\n")
+	}
+
+	req := notion.NewCreateTaskRequest()
+	req.TaskName = taskName
+	req.Description = description
+	req.Assignees = strings.Fields(lines[1])
+
+	return req, nil
+}
+
 func (p *RequestProcessor) ProcessRequests() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	for update := range p.bot.GetUpdatesChan(u) {
-		if update.Message == nil || !strings.HasPrefix(update.Message.Text, "/task") {
+		if update.Message == nil {
 			continue
 		}
 
-		lines := strings.Split(update.Message.Text, "\n")
-		if len(lines) < 2 {
-			msg := tgbotapi.NewMessage(
-				update.Message.Chat.ID, "Please provide the task's name and an assignee",
-			)
+		req, err := parseTelegramRequest(update)
+		if err != nil {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
 
 			if _, err := p.bot.Send(msg); err != nil {
 				log.Printf("Could not send message to Telegram: %v", err)
@@ -76,17 +130,9 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
-		taskName := strings.TrimPrefix(lines[0], "/task ")
-		assignee := lines[1]
-
-		description := ""
-		if len(lines) > 2 {
-			description = strings.Join(lines[2:], "\n")
-		}
-
 		var reply string
 
-		url, err := p.CreateTask(taskName, assignee, description)
+		url, err := p.CreateTask(req)
 		if err != nil {
 			log.Printf("error: %s", err)
 			reply = err.Error()
@@ -101,13 +147,22 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) CreateTask(taskName, name, description string) (string, error) {
-	assignee := p.nameResolver.Resolve(name)
-	if assignee == "" {
-		return "", fmt.Errorf("unknown assignee %s", name)
+func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, error) {
+	req.NotionToken = p.notionToken
+	req.NotionDBID = p.notionDBID
+
+	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
+	if err != nil {
+		return "", err
 	}
 
-	url, err := notion.CreateNotionTask(p.notionToken, p.notionDBID, taskName, assignee, description)
+	req.Assignees = assigneesResolved
+
+	if p.debug {
+		req.Debug = true
+	}
+
+	url, err := notion.CreateNotionTask(req)
 	if err != nil {
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}
