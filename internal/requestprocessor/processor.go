@@ -176,7 +176,7 @@ func (p *RequestProcessor) ProcessRequests() {
 		} else {
 			reply = fmt.Sprintf(
 				"Task has been successfully created and assigned to %s:\n%s",
-				strings.Join(req.Assignees, ","),
+				strings.Join(req.Assignees, ", "),
 				url,
 			)
 		}
