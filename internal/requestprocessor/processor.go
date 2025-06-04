@@ -98,6 +98,9 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 	}
 
 	req, err := parseTelegramRequestMessage(update.Message.Text, isPrivate)
+	if err != nil {
+		return nil, err
+	}
 
 	// set assignee to the sender if the message came from direct messages
 	if isPrivate {
@@ -158,6 +161,8 @@ func (p *RequestProcessor) ProcessRequests() {
 
 		req, err := p.parseAndValidateTelegramRequest(update)
 		if err != nil {
+			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
+
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
 
 			if _, err := p.bot.Send(msg); err != nil {
