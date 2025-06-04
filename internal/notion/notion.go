@@ -155,6 +155,10 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 				continue
 			}
 
+			if err == nil {
+				err = fmt.Errorf("status code is %d", resp.StatusCode)
+			}
+
 			return "", fmt.Errorf("request to Notion API failed: %w", err)
 		}
 
