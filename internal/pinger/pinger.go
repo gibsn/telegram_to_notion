@@ -36,7 +36,6 @@ func NewPinger(
 	st string, period time.Duration,
 	chatID int64,
 ) (*Pinger, error) {
-
 	p := &Pinger{
 		tasksCache:    c,
 		tg:            tg,

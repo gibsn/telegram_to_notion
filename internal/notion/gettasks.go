@@ -72,20 +72,19 @@ func createTasksFilter() []map[string]interface{} {
 }
 
 func parseTask(result loadResultEntry) (Task, error) {
-	titleField, ok := result.Properties["Задача"];
+	titleField, ok := result.Properties["Задача"]
 	if !ok || len(titleField.Title) == 0 {
 		return Task{}, fmt.Errorf("missing title")
 	}
 
 	taskName := titleField.Title[0].PlainText
 
-	assignees := []assignee{}
-	assigneeField, ok := result.Properties["Исполнитель"];
+	assigneeField, ok := result.Properties["Исполнитель"]
 	if !ok || len(assigneeField.People) == 0 {
 		return Task{}, fmt.Errorf("missing assignees")
 	}
 
-	assignees = assigneeField.People
+	assignees := assigneeField.People
 
 	loc := time.Now().Location()
 
