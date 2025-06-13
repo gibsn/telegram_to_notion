@@ -3,8 +3,11 @@ all: telegram_to_notion test_request
 telegram_to_notion: test
 	go build -mod vendor -o ./bin/telegram_to_notion github.com/gibsn/telegram_to_notion/cmd/telegram_to_notion
 
-test_request: test
+test_request:
 	go build -mod vendor -o ./bin/test_request github.com/gibsn/telegram_to_notion/cmd/test_request
+
+get_chat_id:
+	go build -mod vendor -o ./bin/get_chat_id github.com/gibsn/telegram_to_notion/cmd/get_chat_id
 
 bin/golangci-lint:
 	@echo "getting golangci-lint for $$(uname -m)/$$(uname -s)"
@@ -23,5 +26,5 @@ clean:
 test:
 	go test ./...
 
-.PHONY: all test_request telegram_to_notion lint clean test
+.PHONY: all test_request telegram_to_notion get_chat_id lint clean test
 
