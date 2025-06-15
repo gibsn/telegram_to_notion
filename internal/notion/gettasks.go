@@ -20,7 +20,7 @@ type loadPayload struct {
 	Filter map[string]interface{} `json:"filter"`
 }
 
-type assignee struct {
+type Assignee struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
 }
@@ -29,7 +29,7 @@ type loadResultProperty map[string]struct {
 	Title []struct {
 		PlainText string `json:"plain_text"`
 	} `json:"title,omitempty"`
-	People []assignee `json:"People,omitempty"`
+	People []Assignee `json:"People,omitempty"`
 	Date   struct {
 		Start string `json:"start"`
 	} `json:"Date,omitempty"`
@@ -46,7 +46,7 @@ type loadResult struct {
 
 type Task struct {
 	Title     string
-	Assignees []assignee
+	Assignees []Assignee
 	Deadline  time.Time
 	Link      string
 }

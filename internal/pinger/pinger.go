@@ -1,5 +1,7 @@
 package pinger
 
+// TODO refactor statuses, comment for ping
+
 import (
 	"fmt"
 	"html"
@@ -8,7 +10,6 @@ import (
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
-	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -17,10 +18,30 @@ const (
 	nightTimeStart = 23
 )
 
+type Clock interface {
+	Now() time.Time
+	Sleep(d time.Duration)
+	Until(t time.Time) time.Duration
+}
+
+type RealClock struct{}
+
+func (RealClock) Now() time.Time                  { return time.Now() }
+func (RealClock) Sleep(d time.Duration)           { time.Sleep(d) }
+func (RealClock) Until(t time.Time) time.Duration { return time.Until(t) }
+
+type TaskCache interface {
+	Tasks() []notion.Task
+}
+
+type sendPingCB func(chatID int64, mention string, task notion.Task, t time.Time) error
+
 type Pinger struct {
 	debug bool
 
-	tasksCache *taskscache.Cache
+	clock Clock
+
+	tasksCache TaskCache
 
 	tg            *tgbotapi.BotAPI
 	namesResolver *requestprocessor.UserResolver
@@ -29,14 +50,17 @@ type Pinger struct {
 
 	startingTime time.Time
 	period       time.Duration
+
+	sendPingFunc sendPingCB
 }
 
 func NewPinger(
-	c *taskscache.Cache, tg *tgbotapi.BotAPI,
+	c TaskCache, tg *tgbotapi.BotAPI,
 	st string, period time.Duration,
 	chatID int64,
 ) (*Pinger, error) {
 	p := &Pinger{
+		clock:         RealClock{},
 		tasksCache:    c,
 		tg:            tg,
 		period:        period,
@@ -44,6 +68,8 @@ func NewPinger(
 		pingText:      "Hi, what's the estimate?",
 		namesResolver: requestprocessor.NewUserResolver(),
 	}
+
+	p.sendPingFunc = p.sendPing
 
 	loc := time.Now().Location()
 
@@ -57,17 +83,8 @@ func NewPinger(
 	return p, nil
 }
 
-// PingPeriodically starts a daily loop that sends periodic pings beginning
-// from p.startingTime each day and stopping at night.
-//
-// The first message is aligned to the next tick based on p.period from
-// the starting time. For example, if p.startingTime is 08:00 and p.period
-// is 4h, and the program starts at 11:30, the first ping will occur at 12:00.
-//
-// Each day, the pings resume at the same starting time and repeat every
-// p.period until a configured nightTime hour (e.g. 22:00).
-func (p *Pinger) PingPeriodically() {
-	now := time.Now()
+func (p *Pinger) nextTickAfter() time.Time {
+	now := p.clock.Now()
 	loc := now.Location()
 
 	firstTick := time.Date(
@@ -75,71 +92,68 @@ func (p *Pinger) PingPeriodically() {
 		p.startingTime.Hour(), p.startingTime.Minute(), 0, 0, loc,
 	)
 
-	// if the starting time has passed, wait for the next tick
 	nextTick := firstTick
 
-	for nextTick.Before(time.Now()) {
+	for nextTick.Before(now) {
 		nextTick = nextTick.Add(p.period)
 	}
 
-	wait := time.Until(nextTick)
+	return nextTick
+}
+
+func (p *Pinger) PingPeriodically() {
+	nextTick := p.nextTickAfter()
+
 	log.Printf("Waiting until %s to send first message", nextTick.Format(time.RFC1123))
-	time.Sleep(wait)
+	p.clock.Sleep(p.clock.Until(nextTick))
 
-	// loop over days
 	for {
-		now = time.Now()
+		now := p.clock.Now()
+		loc := now.Location()
 
-		// ping must start every day at the same time
-		firstTick = time.Date(
+		firstTick := time.Date(
 			now.Year(), now.Month(), now.Day(),
 			p.startingTime.Hour(), p.startingTime.Minute(), 0, 0, loc,
 		)
 
 		if now.Before(firstTick) {
-			wait := time.Until(firstTick)
+			wait := p.clock.Until(firstTick)
 			log.Printf("Waiting until %s to start today's cycle", firstTick.Format(time.RFC1123))
-			time.Sleep(wait)
+
+			p.clock.Sleep(wait)
 		}
 
-		// stop sending at night and reschedule for the next day
 		nightTime := time.Date(
 			now.Year(), now.Month(), now.Day(),
 			nightTimeStart, 0, 0, 0, loc,
 		)
 
-		// start sending pings every period until night begins
 		p.pingThroughDay(nightTime)
 
-		tomorrow := tomorrow()
-		log.Printf("Waiting until %s", tomorrow)
+		next := p.tomorrow(now, loc)
 
-		time.Sleep(time.Until(tomorrow))
+		log.Printf("Waiting until %s", next)
+
+		p.clock.Sleep(p.clock.Until(next))
 	}
 }
 
-func tomorrow() time.Time {
-	return ceil(time.Now(), 24*time.Hour)
-}
+func (p *Pinger) tomorrow(startOfDay time.Time, loc *time.Location) time.Time {
+	now := p.clock.Now().In(loc)
 
-func ceil(t time.Time, d time.Duration) time.Time {
-	if d <= 0 {
-		return t
+	dayDelta := 0
+	if startOfDay.YearDay() == now.YearDay() {
+		dayDelta = 1
 	}
 
-	rounded := t.Round(d)
-	if rounded.Before(t) {
-		return rounded.Add(d)
-	}
-
-	return rounded
+	return time.Date(now.Year(), now.Month(), now.Day()+dayDelta, 0, 0, 0, 0, loc)
 }
+
 func (p *Pinger) pingThroughDay(nightTime time.Time) {
-	ticker := time.NewTicker(p.period)
-	defer ticker.Stop()
-
 	for {
-		if time.Now().After(nightTime) {
+		now := p.clock.Now()
+
+		if !now.Before(nightTime) {
 			return
 		}
 
@@ -153,17 +167,14 @@ func (p *Pinger) pingThroughDay(nightTime time.Time) {
 			for _, a := range task.Assignees {
 				resolved := p.namesResolver.NotionToTg(a.ID)
 				if resolved == "" {
-					log.Printf(
-						"Could not resolve user ID '%s' from Notion to telegram name", a.ID,
-					)
+					log.Printf("Could not resolve user ID '%s' from Notion to telegram name", a.ID)
 					log.Printf("Skipping ping for task '%s'", task.Title)
-
 					continue
 				}
 
 				log.Printf("Sending ping for task '%s' to '%s'", task.Title, resolved)
 
-				if err := p.sendPing(p.chatID, resolved, task); err != nil {
+				if err := p.sendPingFunc(p.chatID, resolved, task, now); err != nil {
 					log.Printf(
 						"Could not send ping on task '%s' to user '%s': %v",
 						task.Title, resolved, err,
@@ -172,11 +183,11 @@ func (p *Pinger) pingThroughDay(nightTime time.Time) {
 			}
 		}
 
-		<-ticker.C
+		p.clock.Sleep(p.period)
 	}
 }
 
-func (p *Pinger) sendPing(chatID int64, mention string, task notion.Task) error {
+func (p *Pinger) sendPing(chatID int64, mention string, task notion.Task, t time.Time) error {
 	msgText := fmt.Sprintf(
 		"%s\n\n%s\n\n<a href=\"%s\">%s</a>\nDeadline: %s",
 		p.pingText,
@@ -203,4 +214,12 @@ func (p *Pinger) SetDebug(debug bool) {
 
 func (p *Pinger) SetPingText(text string) {
 	p.pingText = text
+}
+
+func (p *Pinger) SetClock(clock Clock) {
+	p.clock = clock
+}
+
+func (p *Pinger) SetSendPingFunc(f sendPingCB) {
+	p.sendPingFunc = f
 }

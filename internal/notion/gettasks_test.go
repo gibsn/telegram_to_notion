@@ -26,7 +26,7 @@ func TestParseTask(t *testing.T) {
 						}{{PlainText: "Single Assignee Task"}},
 					},
 					"Исполнитель": {
-						People: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+						People: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 					},
 					"Дедлайн": {
 						Date: struct {
@@ -37,7 +37,7 @@ func TestParseTask(t *testing.T) {
 			},
 			expected: Task{
 				Title:     "Single Assignee Task",
-				Assignees: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+				Assignees: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 				Deadline:  mustParse("2025-12-31"),
 				Link:      "https://www.notion.so/abcdef",
 			},
@@ -53,7 +53,7 @@ func TestParseTask(t *testing.T) {
 						}{{PlainText: "Multiple Assignees Task"}},
 					},
 					"Исполнитель": {
-						People: []assignee{
+						People: []Assignee{
 							{Name: "Alice", ID: "uuid-alice"},
 							{Name: "Bob", ID: "uuid-bob"},
 						},
@@ -67,7 +67,7 @@ func TestParseTask(t *testing.T) {
 			},
 			expected: Task{
 				Title: "Multiple Assignees Task",
-				Assignees: []assignee{
+				Assignees: []Assignee{
 					{Name: "Alice", ID: "uuid-alice"},
 					{Name: "Bob", ID: "uuid-bob"},
 				},
@@ -107,7 +107,7 @@ func TestParseTask(t *testing.T) {
 						}{{PlainText: "Some task"}},
 					},
 					"Исполнитель": {
-						People: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+						People: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 					},
 					"Дедлайн": {
 						Date: struct {
@@ -118,7 +118,7 @@ func TestParseTask(t *testing.T) {
 			},
 			expected: Task{
 				Title:     "Some task",
-				Assignees: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+				Assignees: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 				Deadline:  time.Time{},
 				Link:      "https://www.notion.so/id456",
 			},
@@ -134,7 +134,7 @@ func TestParseTask(t *testing.T) {
 						}{{PlainText: "Another task"}},
 					},
 					"Исполнитель": {
-						People: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+						People: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 					},
 					"Дедлайн": {
 						Date: struct {
@@ -145,7 +145,7 @@ func TestParseTask(t *testing.T) {
 			},
 			expected: Task{
 				Title:     "Another task",
-				Assignees: []assignee{{Name: "Alice", ID: "uuid-alice"}},
+				Assignees: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
 				Deadline:  time.Time{},
 				Link:      "https://www.notion.so/id789",
 			},
