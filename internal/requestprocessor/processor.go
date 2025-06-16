@@ -129,7 +129,7 @@ func parseTelegramRequestMessage(text string, isPrivate bool) (
 	*notion.CreateTaskRequest, error,
 ) {
 	if !strings.HasPrefix(text, "/task") {
-		return nil, fmt.Errorf("unknown command")
+		return nil, fmt.Errorf("🖕🖕🖕")
 	}
 
 	lines := strings.Split(text, "\n")

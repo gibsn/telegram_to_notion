@@ -1,7 +1,5 @@
 package pinger
 
-// TODO comment for ping
-
 import (
 	"fmt"
 	"html"
@@ -93,6 +91,21 @@ func (p *Pinger) nextTickAfter() time.Time {
 	return nextTick
 }
 
+// PingPeriodically runs a daily loop that sends task pings at set times.
+//
+// Pings start from the first tick after p.startingTime and repeat every period,
+// stopping at endTime (e.g., 23:00). After that, the function waits until the
+// next day and restarts the same schedule.
+//
+// Only tasks with a non-zero deadline and a deadline within the threshold
+// (i.e., deadline - now <= threshold) are pinged.
+//
+// Example:
+//
+//	startingTime = 08:00, period = 4h, endTime = 23:00, threshold = 24h
+//	If now = 2025-06-13T07:30 → first ping at 08:00
+//	Pings at 08:00, 12:00, 16:00, 20:00 (if deadline is within 24h)
+//	Then wait until 2025-06-14T08:00 and repeat
 func (p *Pinger) PingPeriodically() {
 	nextTick := p.nextTickAfter()
 
