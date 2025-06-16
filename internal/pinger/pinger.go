@@ -120,7 +120,6 @@ func (p *Pinger) PingPeriodically() {
 		next := p.tomorrow(now, loc)
 
 		log.Printf("Waiting until %s", next)
-
 		p.clock.Sleep(p.clock.Until(next))
 	}
 }
