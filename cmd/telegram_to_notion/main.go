@@ -15,21 +15,26 @@ import (
 
 func main() {
 	var (
-		debug                   bool
-		botToken                string
-		notionToken, notionDBID string
-		pingStartingTime        string
-		pingPeriod              time.Duration
-		pingChatID              int64
-		pingText                string
-		tasksCachePeriod        time.Duration
+		debug                         bool
+		botToken                      string
+		notionToken, notionDBID       string
+		pingThreshold                 time.Duration
+		pingStartingTime, pingEndTime string
+		pingPeriod                    time.Duration
+		pingChatID                    int64
+		pingText                      string
+		tasksCachePeriod              time.Duration
 	)
 
 	flag.BoolVar(&debug, "debug", false, "Enable debug mode")
 	flag.StringVar(&botToken, "telegram_token", "", "Telegram Bot Token")
 	flag.StringVar(&notionToken, "notion_token", "", "Notion Integration Token")
 	flag.StringVar(&notionDBID, "notion_db", "", "Notion Database ID")
+	flag.DurationVar(
+		&pingThreshold, "ping_threshold", 72*time.Hour, "Days till deadline when to start pinging",
+	)
 	flag.StringVar(&pingStartingTime, "ping_st_time", "09:00", "Time to start pinging")
+	flag.StringVar(&pingEndTime, "ping_end_time", "23:00", "Time to finish pinging")
 	flag.DurationVar(&pingPeriod, "ping_period_time", 6*time.Hour, "Pinging period")
 	flag.Int64Var(&pingChatID, "ping_chat_id", 0, "Pinger chat ID")
 	flag.StringVar(&pingText, "ping_text", "Hi, what's the estimate?", "Text for ping message")
@@ -55,11 +60,19 @@ func main() {
 	p := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
 	c := taskscache.NewTasksCache(notion, notionDBID, tasksCachePeriod)
 
-	pinger, err := pinger.NewPinger(c, bot, pingStartingTime, pingPeriod, pingChatID)
+	pinger, err := pinger.NewPinger(c, bot, pingChatID)
 	if err != nil {
 		log.Fatalf("Could not initialise pinger: %v", err)
 	}
+	if err := pinger.SetStartingTime(pingStartingTime); err != nil {
+		log.Fatalf("Could not set up starting time for pinger: %v", err)
+	}
+	if err := pinger.SetEndTime(pingEndTime); err != nil {
+		log.Fatalf("Could not set up finish time for pinger: %v", err)
+	}
 
+	pinger.SetThreshold(pingThreshold)
+	pinger.SetPeriod(pingPeriod)
 	pinger.SetPingText(pingText)
 
 	if debug {

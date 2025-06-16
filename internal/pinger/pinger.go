@@ -1,11 +1,12 @@
 package pinger
 
-// TODO refactor statuses, comment for ping
+// TODO comment for ping
 
 import (
 	"fmt"
 	"html"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
@@ -14,23 +15,19 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const (
-	nightTimeStart = 23
-)
-
-type Clock interface {
+type clock interface {
 	Now() time.Time
 	Sleep(d time.Duration)
 	Until(t time.Time) time.Duration
 }
 
-type RealClock struct{}
+type realClock struct{}
 
-func (RealClock) Now() time.Time                  { return time.Now() }
-func (RealClock) Sleep(d time.Duration)           { time.Sleep(d) }
-func (RealClock) Until(t time.Time) time.Duration { return time.Until(t) }
+func (realClock) Now() time.Time                  { return time.Now() }
+func (realClock) Sleep(d time.Duration)           { time.Sleep(d) }
+func (realClock) Until(t time.Time) time.Duration { return time.Until(t) }
 
-type TaskCache interface {
+type taskCache interface {
 	Tasks() []notion.Task
 }
 
@@ -39,46 +36,41 @@ type sendPingCB func(chatID int64, mention string, task notion.Task, t time.Time
 type Pinger struct {
 	debug bool
 
-	clock Clock
+	clock clock
 
-	tasksCache TaskCache
+	tasksCache taskCache
 
 	tg            *tgbotapi.BotAPI
 	namesResolver *requestprocessor.UserResolver
 	chatID        int64
 	pingText      string
 
-	startingTime time.Time
-	period       time.Duration
+	startingTime, endTime time.Time
+	threshold, period     time.Duration
 
 	sendPingFunc sendPingCB
 }
 
 func NewPinger(
-	c TaskCache, tg *tgbotapi.BotAPI,
-	st string, period time.Duration,
+	c taskCache, tg *tgbotapi.BotAPI,
 	chatID int64,
 ) (*Pinger, error) {
+	loc := time.Now().Location()
+
 	p := &Pinger{
-		clock:         RealClock{},
+		clock:         realClock{},
 		tasksCache:    c,
 		tg:            tg,
-		period:        period,
+		startingTime:  time.Date(0, 0, 0, 8, 0, 0, 0, loc),
+		endTime:       time.Date(0, 0, 0, 23, 0, 0, 0, loc),
+		threshold:     72 * time.Hour,
+		period:        4 * time.Hour,
 		chatID:        chatID,
 		pingText:      "Hi, what's the estimate?",
 		namesResolver: requestprocessor.NewUserResolver(),
 	}
 
 	p.sendPingFunc = p.sendPing
-
-	loc := time.Now().Location()
-
-	startAt, err := time.ParseInLocation("15:04", st, loc)
-	if err != nil {
-		return nil, fmt.Errorf("invalid start time: %w", err)
-	}
-
-	p.startingTime = startAt
 
 	return p, nil
 }
@@ -123,12 +115,7 @@ func (p *Pinger) PingPeriodically() {
 			p.clock.Sleep(wait)
 		}
 
-		nightTime := time.Date(
-			now.Year(), now.Month(), now.Day(),
-			nightTimeStart, 0, 0, 0, loc,
-		)
-
-		p.pingThroughDay(nightTime)
+		p.pingThroughDay()
 
 		next := p.tomorrow(now, loc)
 
@@ -149,9 +136,17 @@ func (p *Pinger) tomorrow(startOfDay time.Time, loc *time.Location) time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day()+dayDelta, 0, 0, 0, 0, loc)
 }
 
-func (p *Pinger) pingThroughDay(nightTime time.Time) {
+func (p *Pinger) pingThroughDay() {
+	now := p.clock.Now()
+	loc := now.Location()
+
+	nightTime := time.Date(
+		now.Year(), now.Month(), now.Day(),
+		p.endTime.Hour(), 0, 0, 0, loc,
+	)
+
 	for {
-		now := p.clock.Now()
+		now = p.clock.Now()
 
 		if !now.Before(nightTime) {
 			return
@@ -160,9 +155,11 @@ func (p *Pinger) pingThroughDay(nightTime time.Time) {
 		log.Println("Sending pings now")
 
 		for _, task := range p.tasksCache.Tasks() {
-			if task.Deadline.IsZero() {
+			if task.Deadline.IsZero() || task.Deadline.Sub(now) > p.threshold {
 				continue
 			}
+
+			resolvedAssignees := make([]string, 0, len(task.Assignees))
 
 			for _, a := range task.Assignees {
 				resolved := p.namesResolver.NotionToTg(a.ID)
@@ -172,14 +169,18 @@ func (p *Pinger) pingThroughDay(nightTime time.Time) {
 					continue
 				}
 
-				log.Printf("Sending ping for task '%s' to '%s'", task.Title, resolved)
+				resolvedAssignees = append(resolvedAssignees, resolved)
+			}
 
-				if err := p.sendPingFunc(p.chatID, resolved, task, now); err != nil {
-					log.Printf(
-						"Could not send ping on task '%s' to user '%s': %v",
-						task.Title, resolved, err,
-					)
-				}
+			mention := strings.Join(resolvedAssignees, ", ")
+
+			log.Printf("Sending ping for task '%s' to '%s'", task.Title, mention)
+
+			if err := p.sendPingFunc(p.chatID, mention, task, now); err != nil {
+				log.Printf(
+					"Could not send ping on task '%s' to user '%s': %v",
+					task.Title, mention, err,
+				)
 			}
 		}
 
@@ -212,14 +213,48 @@ func (p *Pinger) SetDebug(debug bool) {
 	p.debug = debug
 }
 
+func (p *Pinger) SetThreshold(th time.Duration) {
+	p.threshold = th
+}
+
+func (p *Pinger) SetStartingTime(t string) error {
+	loc := time.Now().Location()
+
+	startAt, err := time.ParseInLocation("15:04", t, loc)
+	if err != nil {
+		return fmt.Errorf("invalid start time: %w", err)
+	}
+
+	p.startingTime = startAt
+
+	return nil
+}
+
+func (p *Pinger) SetEndTime(t string) error {
+	loc := time.Now().Location()
+
+	endAt, err := time.ParseInLocation("15:04", t, loc)
+	if err != nil {
+		return fmt.Errorf("invalid end time: %w", err)
+	}
+
+	p.endTime = endAt
+
+	return nil
+}
+
+func (p *Pinger) SetPeriod(d time.Duration) {
+	p.period = d
+}
+
 func (p *Pinger) SetPingText(text string) {
 	p.pingText = text
 }
 
-func (p *Pinger) SetClock(clock Clock) {
+func (p *Pinger) setClock(clock clock) {
 	p.clock = clock
 }
 
-func (p *Pinger) SetSendPingFunc(f sendPingCB) {
+func (p *Pinger) setSendPingFunc(f sendPingCB) {
 	p.sendPingFunc = f
 }

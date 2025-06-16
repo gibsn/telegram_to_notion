@@ -188,7 +188,7 @@ func TestParseTask(t *testing.T) {
 
 func mustParse(s string) time.Time {
 	loc := time.Now().Location()
-	tm, _ := time.ParseInLocation("2006-01-02", s, loc)
+	tm, _ := time.ParseInLocation("2006-01-02", s, loc) //nolint:errcheck
 
 	return tm
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"path"
@@ -12,8 +11,10 @@ import (
 	"time"
 )
 
-var (
-	statusFilter = []string{"бэклог", "уже готово", "архивировано"}
+const (
+	StatusBacklog  = "бэклог"
+	StatusDone     = "уже готово"
+	StatusArchived = "архивировано"
 )
 
 type loadPayload struct {
@@ -52,8 +53,8 @@ type Task struct {
 }
 
 func createTasksFilter() []map[string]interface{} {
-	andFilters := make([]map[string]interface{}, 0, len(statusFilter))
-	for _, status := range statusFilter {
+	andFilters := make([]map[string]interface{}, 0, 3)
+	for _, status := range []string{StatusBacklog, StatusDone, StatusArchived} {
 		andFilters = append(andFilters, map[string]interface{}{
 			"property": "Статус",
 			"select": map[string]string{
@@ -116,12 +117,18 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 		"and": createTasksFilter(),
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal json payload: %w", err)
+	}
 
-	req, _ := http.NewRequest(
+	req, err := http.NewRequest(
 		"POST", notionAPI+path.Join("databases", dbID, "query"),
 		bytes.NewBuffer(body),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("could not create a request: %w", err)
+	}
 
 	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -138,10 +145,8 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 		return nil, fmt.Errorf("status code is %d", resp.StatusCode)
 	}
 
-	data, _ := io.ReadAll(resp.Body)
-
 	var result loadResult
-	if err := json.Unmarshal(data, &result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 

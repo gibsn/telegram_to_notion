@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path"
 	"strings"
 	"time"
 )
@@ -156,7 +155,7 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	}
 
 	cleanID := strings.ReplaceAll(result.ID, "-", "")
-	url := path.Join(notionURL, cleanID)
+	url := notionURL + cleanID
 
 	return url, nil
 }

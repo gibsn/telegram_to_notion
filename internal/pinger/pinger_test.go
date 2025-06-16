@@ -1,6 +1,4 @@
-package pinger_test
-
-// TODO remove times
+package pinger
 
 import (
 	"log"
@@ -9,23 +7,20 @@ import (
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
-	"github.com/gibsn/telegram_to_notion/internal/pinger"
 )
 
-type MockClock struct {
+type mockClock struct {
 	curr time.Time
 	last time.Time
 
-	times []time.Time
-	idx   int
-	mu    sync.Mutex
+	mu sync.Mutex
 }
 
-func (m *MockClock) Now() time.Time {
+func (m *mockClock) Now() time.Time {
 	return m.curr
 }
 
-func (m *MockClock) Sleep(d time.Duration) {
+func (m *mockClock) Sleep(d time.Duration) {
 	m.mu.Lock()
 	m.curr = m.curr.Add(d)
 	m.mu.Unlock()
@@ -36,37 +31,31 @@ func (m *MockClock) Sleep(d time.Duration) {
 	}
 }
 
-func (m *MockClock) Until(t time.Time) time.Duration {
+func (m *mockClock) Until(t time.Time) time.Duration {
 	return t.Sub(m.curr)
 }
 
-type MockTaskCache struct {
+type mockTaskCache struct {
 	tasks []notion.Task
 }
 
-func (m *MockTaskCache) Tasks() []notion.Task {
+func (m *mockTaskCache) Tasks() []notion.Task {
 	return m.tasks
 }
 
 func TestPingPeriodically_Scenarios(t *testing.T) {
 	type testcase struct {
 		name      string
-		start     string
-		times     []time.Time
+		start     time.Time
+		end       time.Time
 		wantPings []string
 	}
 
 	tests := []testcase{
 		{
-			name: "start before first tick, within one day",
-			times: []time.Time{
-				time.Date(2025, 6, 13, 8, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 21, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 03, 0, 0, 0, time.UTC),
-			},
+			name:  "start before first tick, within one day",
+			start: time.Date(2025, 6, 13, 8, 0, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 14, 03, 0, 0, 0, time.UTC),
 			wantPings: []string{
 				"2025-06-13 09:00:00 +0000 UTC",
 				"2025-06-13 15:00:00 +0000 UTC",
@@ -74,29 +63,18 @@ func TestPingPeriodically_Scenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "start after one tick",
-			times: []time.Time{
-				time.Date(2025, 6, 13, 14, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 21, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 03, 0, 0, 0, time.UTC),
-			},
+			name:  "start after one tick",
+			start: time.Date(2025, 6, 13, 14, 0, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 14, 03, 0, 0, 0, time.UTC),
 			wantPings: []string{
 				"2025-06-13 15:00:00 +0000 UTC",
 				"2025-06-13 21:00:00 +0000 UTC",
 			},
 		},
 		{
-			name: "start after last tick",
-			times: []time.Time{
-				time.Date(2025, 6, 13, 22, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 0, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 21, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 15, 03, 0, 0, 0, time.UTC),
-			},
+			name:  "start after last tick",
+			start: time.Date(2025, 6, 13, 22, 0, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 15, 03, 0, 0, 0, time.UTC),
 			wantPings: []string{
 				"2025-06-14 09:00:00 +0000 UTC",
 				"2025-06-14 15:00:00 +0000 UTC",
@@ -104,23 +82,9 @@ func TestPingPeriodically_Scenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "two full days",
-			times: []time.Time{
-				// Day 1
-				time.Date(2025, 6, 13, 8, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 13, 21, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 03, 0, 0, 0, time.UTC),
-				// Day 2
-				time.Date(2025, 6, 14, 0, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 9, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 15, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 14, 21, 0, 0, 0, time.UTC),
-				time.Date(2025, 6, 15, 03, 0, 0, 0, time.UTC),
-			},
+			name:  "two full days",
+			start: time.Date(2025, 6, 13, 8, 0, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 15, 03, 0, 0, 0, time.UTC),
 			wantPings: []string{
 				"2025-06-13 09:00:00 +0000 UTC",
 				"2025-06-13 15:00:00 +0000 UTC",
@@ -129,6 +93,32 @@ func TestPingPeriodically_Scenarios(t *testing.T) {
 				"2025-06-14 15:00:00 +0000 UTC",
 				"2025-06-14 21:00:00 +0000 UTC",
 			},
+		},
+		{
+			name:  "ping only tasks within threshold",
+			start: time.Date(2025, 6, 13, 7, 30, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 13, 23, 0, 0, 0, time.UTC),
+			wantPings: []string{
+				"2025-06-13 09:00:00 +0000 UTC",
+				"2025-06-13 15:00:00 +0000 UTC",
+				"2025-06-13 21:00:00 +0000 UTC",
+			},
+		},
+		{
+			name:  "ping tasks after deadline",
+			start: time.Date(2025, 6, 14, 7, 30, 0, 0, time.UTC),
+			end:   time.Date(2025, 6, 14, 23, 0, 0, 0, time.UTC),
+			wantPings: []string{
+				"2025-06-14 09:00:00 +0000 UTC",
+				"2025-06-14 15:00:00 +0000 UTC",
+				"2025-06-14 21:00:00 +0000 UTC",
+			},
+		},
+		{
+			name:      "ping no tasks past threshold",
+			start:     time.Date(2025, 6, 3, 7, 30, 0, 0, time.UTC),
+			end:       time.Date(2025, 6, 4, 23, 0, 0, 0, time.UTC),
+			wantPings: []string{},
 		},
 	}
 
@@ -136,8 +126,8 @@ func TestPingPeriodically_Scenarios(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			log.Printf("Running test '%s'", tc.name)
 
-			clock := &MockClock{times: tc.times, curr: tc.times[0], last: tc.times[len(tc.times)-1]}
-			cache := &MockTaskCache{
+			clock := &mockClock{curr: tc.start, last: tc.end}
+			cache := &mockTaskCache{
 				tasks: []notion.Task{
 					{
 						Title: "Test task",
@@ -155,13 +145,19 @@ func TestPingPeriodically_Scenarios(t *testing.T) {
 				sentMU    sync.Mutex
 			)
 
-			p, err := pinger.NewPinger(cache, nil, "09:00", 6*time.Hour, 0)
+			p, err := NewPinger(cache, nil, 0)
 			if err != nil {
 				t.Fatalf("failed to create pinger: %v", err)
 			}
 
-			p.SetClock(clock)
-			p.SetSendPingFunc(
+			if err := p.SetStartingTime("09:00"); err != nil {
+				log.Fatalf("Could not set up starting time for pinger: %v", err)
+			}
+
+			p.SetPeriod(6 * time.Hour)
+
+			p.setClock(clock)
+			p.setSendPingFunc(
 				func(
 					chatID int64, mention string, task notion.Task, t time.Time,
 				) error {
