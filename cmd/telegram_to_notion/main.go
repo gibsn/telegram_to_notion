@@ -3,19 +3,44 @@ package main
 import (
 	"flag"
 	"log"
+	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
+	"github.com/gibsn/telegram_to_notion/internal/pinger"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
+	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
-	var botToken, notionToken, notionDBID string
+	var (
+		debug                         bool
+		botToken                      string
+		notionToken, notionDBID       string
+		pingThreshold                 time.Duration
+		pingStartingTime, pingEndTime string
+		pingPeriod                    time.Duration
+		pingChatID                    int64
+		pingText                      string
+		tasksCachePeriod              time.Duration
+	)
 
+	flag.BoolVar(&debug, "debug", false, "Enable debug mode")
 	flag.StringVar(&botToken, "telegram_token", "", "Telegram Bot Token")
 	flag.StringVar(&notionToken, "notion_token", "", "Notion Integration Token")
 	flag.StringVar(&notionDBID, "notion_db", "", "Notion Database ID")
+	flag.DurationVar(
+		&pingThreshold, "ping_threshold", 72*time.Hour, "Days till deadline when to start pinging",
+	)
+	flag.StringVar(&pingStartingTime, "ping_st_time", "09:00", "Time to start pinging")
+	flag.StringVar(&pingEndTime, "ping_end_time", "23:00", "Time to finish pinging")
+	flag.DurationVar(&pingPeriod, "ping_period_time", 6*time.Hour, "Pinging period")
+	flag.Int64Var(&pingChatID, "ping_chat_id", 0, "Pinger chat ID")
+	flag.StringVar(&pingText, "ping_text", "Hi, what's the estimate?", "Text for ping message")
+	flag.DurationVar(
+		&tasksCachePeriod, "tasks_cache_period", 1*time.Minute, "Tasks cache refresh period",
+	)
 	flag.Parse()
 
 	if botToken == "" || notionToken == "" || notionDBID == "" {
@@ -32,7 +57,35 @@ func main() {
 	log.Printf("Successfully connected to Telegram")
 
 	notion := notion.NewNotion(notionToken)
-
 	p := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
-	p.ProcessRequests()
+	c := taskscache.NewTasksCache(notion, notionDBID, tasksCachePeriod)
+
+	pinger, err := pinger.NewPinger(c, bot, pingChatID)
+	if err != nil {
+		log.Fatalf("Could not initialise pinger: %v", err)
+	}
+	if err := pinger.SetStartingTime(pingStartingTime); err != nil {
+		log.Fatalf("Could not set up starting time for pinger: %v", err)
+	}
+	if err := pinger.SetEndTime(pingEndTime); err != nil {
+		log.Fatalf("Could not set up finish time for pinger: %v", err)
+	}
+
+	pinger.SetThreshold(pingThreshold)
+	pinger.SetPeriod(pingPeriod)
+	pinger.SetPingText(pingText)
+
+	if debug {
+		p.SetDebug(debug)
+		c.SetDebug(debug)
+		pinger.SetDebug(debug)
+	}
+
+	go p.ProcessRequests()
+	go c.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
+	go pinger.PingPeriodically()
+
+	for {
+		time.Sleep(time.Second)
+	}
 }
