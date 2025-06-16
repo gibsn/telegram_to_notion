@@ -154,7 +154,7 @@ func (p *Pinger) pingThroughDay() {
 
 	nightTime := time.Date(
 		now.Year(), now.Month(), now.Day(),
-		p.endTime.Hour(), 0, 0, 0, loc,
+		p.endTime.Hour(), p.endTime.Minute(), 0, 0, loc,
 	)
 
 	for {
