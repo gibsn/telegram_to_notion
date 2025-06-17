@@ -1,6 +1,7 @@
 package requestprocessor
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -26,6 +27,10 @@ type UserResolver struct {
 	tgToNotion map[string]string
 	notionToTg map[string]string
 }
+
+var (
+	errUnknownCommand = errors.New("unknown command")
+)
 
 func NewUserResolver() *UserResolver {
 	r := &UserResolver{}
@@ -129,7 +134,7 @@ func parseTelegramRequestMessage(text string, isPrivate bool) (
 	*notion.CreateTaskRequest, error,
 ) {
 	if !strings.HasPrefix(text, "/task") {
-		return nil, fmt.Errorf("🖕🖕🖕")
+		return nil, errUnknownCommand
 	}
 
 	lines := strings.Split(text, "\n")
@@ -178,7 +183,12 @@ func (p *RequestProcessor) ProcessRequests() {
 		if err != nil {
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
 
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
+			txt := err.Error()
+			if errors.Is(err, errUnknownCommand) {
+				txt = "🖕🖕🖕"
+			}
+
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, txt)
 
 			if _, err := p.bot.Send(msg); err != nil {
 				log.Printf("Could not send message to Telegram: %v", err)
