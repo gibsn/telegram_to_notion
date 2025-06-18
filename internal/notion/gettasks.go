@@ -153,12 +153,15 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 	tasks := make([]Task, 0, len(result.Results))
 
 	for _, task := range result.Results {
-		task, err := parseTask(task)
+		taskParsed, err := parseTask(task)
 		if err != nil {
-			log.Printf("Could not load tasks: invalid response fron Notion API: %v", err)
+			log.Printf(
+				"Could not load task (id: %s): invalid response fron Notion API: %v",
+				task.ID, err,
+			)
 		}
 
-		tasks = append(tasks, task)
+		tasks = append(tasks, taskParsed)
 	}
 
 	return tasks, nil
