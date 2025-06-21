@@ -202,7 +202,7 @@ func TestParseSetDeadlineCommand(t *testing.T) {
 		},
 		{
 			name:          "multiple task links - uses first one",
-			repliedToText: "Task created: https://www.notion.so/abc123 and another https://www.notion.so/def456",
+			repliedToText: "https://www.notion.so/abc123 and https://www.notion.so/def456",
 			input:         "/deadline 2024-12-31",
 			expectErr:     false,
 			want: &notion.SetDeadlineRequest{
