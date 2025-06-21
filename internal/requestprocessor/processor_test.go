@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -157,11 +158,12 @@ test_description`,
 
 func TestParseSetDeadlineCommand(t *testing.T) {
 	tests := []struct {
-		name          string
-		repliedToText string
-		input         string
-		expectErr     bool
-		want          *notion.SetDeadlineRequest
+		name              string
+		repliedToText     string
+		repliedToEntities []tgbotapi.MessageEntity
+		input             string
+		expectErr         bool
+		want              *notion.SetDeadlineRequest
 	}{
 		{
 			name:          "valid deadline",
@@ -221,12 +223,29 @@ func TestParseSetDeadlineCommand(t *testing.T) {
 				Deadline: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			},
 		},
+		{
+			name:          "reply to hyperlink",
+			repliedToText: "My awesome task",
+			repliedToEntities: []tgbotapi.MessageEntity{
+				{
+					Type: "text_link",
+					URL:  "https://www.notion.so/hyperlink-task",
+				},
+			},
+			input:     "/deadline 2025-01-01",
+			expectErr: false,
+			want: &notion.SetDeadlineRequest{
+				TaskLink: "https://www.notion.so/hyperlink-task",
+				Deadline: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			command := extractCommand(tt.input)
 			command.repliedToText = tt.repliedToText
+			command.repliedToEntities = tt.repliedToEntities
 
 			processor := NewRequestProcessor(nil, "", nil)
 			got, err := processor.parseSetDeadlineCommand(command)
@@ -244,11 +263,12 @@ func TestParseSetDeadlineCommand(t *testing.T) {
 
 func TestParseDoneCommand(t *testing.T) {
 	tests := []struct {
-		name          string
-		repliedToText string
-		input         string
-		expectErr     bool
-		want          *notion.SetStatusRequest
+		name              string
+		repliedToText     string
+		repliedToEntities []tgbotapi.MessageEntity
+		input             string
+		expectErr         bool
+		want              *notion.SetStatusRequest
 	}{
 		{
 			name:          "valid done command",
@@ -304,12 +324,29 @@ func TestParseDoneCommand(t *testing.T) {
 				Status:   notion.StatusDone,
 			},
 		},
+		{
+			name:          "reply to hyperlink",
+			repliedToText: "My awesome task",
+			repliedToEntities: []tgbotapi.MessageEntity{
+				{
+					Type: "text_link",
+					URL:  "https://www.notion.so/hyperlink-task-done",
+				},
+			},
+			input:     "/done",
+			expectErr: false,
+			want: &notion.SetStatusRequest{
+				TaskLink: "https://www.notion.so/hyperlink-task-done",
+				Status:   notion.StatusDone,
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			command := extractCommand(tt.input)
 			command.repliedToText = tt.repliedToText
+			command.repliedToEntities = tt.repliedToEntities
 
 			processor := NewRequestProcessor(nil, "", nil)
 			got, err := processor.parseDoneCommand(command)

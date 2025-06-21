@@ -67,13 +67,12 @@ func (p *RequestProcessor) SetTasksCache(cache *taskscache.Cache) {
 }
 
 type commandCommon struct {
-	command       string
-	restOfMessage string
-
-	repliedToText string
-
-	fromUserName string
-	isPrivate    bool
+	command           string
+	restOfMessage     string
+	repliedToText     string
+	repliedToEntities []tgbotapi.MessageEntity
+	fromUserName      string
+	isPrivate         bool
 }
 
 func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Update) (
@@ -89,6 +88,7 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 
 	if update.Message.ReplyToMessage != nil {
 		command.repliedToText = update.Message.ReplyToMessage.Text
+		command.repliedToEntities = update.Message.ReplyToMessage.Entities
 	}
 	command.isPrivate = update.Message.Chat.IsPrivate()
 	command.fromUserName = fromUserName
@@ -152,6 +152,21 @@ func parseTaskCommand(message commandCommon) (
 	return req, nil
 }
 
+func (p *RequestProcessor) extractTaskLink(message commandCommon) string {
+	for _, entity := range message.repliedToEntities {
+		if entity.Type == "text_link" {
+			if p.taskLinkParser.MatchString(entity.URL) {
+				return entity.URL
+			}
+		}
+	}
+
+	// if not found in entities, try to find in the text
+	match := p.taskLinkParser.FindString(message.repliedToText)
+
+	return match
+}
+
 func (p *RequestProcessor) parseSetDeadlineCommand(message commandCommon) (
 	*notion.SetDeadlineRequest, error,
 ) {
@@ -161,12 +176,12 @@ func (p *RequestProcessor) parseSetDeadlineCommand(message commandCommon) (
 		return nil, fmt.Errorf("command is not a reply to any message")
 	}
 
-	match := p.taskLinkParser.FindString(message.repliedToText)
-	if match == "" {
+	taskLink := p.extractTaskLink(message)
+	if taskLink == "" {
 		return nil, fmt.Errorf("command is not a reply to a task")
 	}
 
-	req.TaskLink = match
+	req.TaskLink = taskLink
 
 	deadlineStr := strings.TrimSpace(message.restOfMessage)
 	deadlineParsed, err := time.Parse("2006-01-02", deadlineStr)
@@ -188,12 +203,12 @@ func (p *RequestProcessor) parseDoneCommand(message commandCommon) (
 		return nil, fmt.Errorf("command is not a reply to any message")
 	}
 
-	match := p.taskLinkParser.FindString(message.repliedToText)
-	if match == "" {
+	taskLink := p.extractTaskLink(message)
+	if taskLink == "" {
 		return nil, fmt.Errorf("command is not a reply to a task")
 	}
 
-	req.TaskLink = match
+	req.TaskLink = taskLink
 	req.Status = notion.StatusDone
 
 	return req, nil
