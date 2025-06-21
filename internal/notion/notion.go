@@ -24,6 +24,13 @@ const (
 	notionAPI = "https://api.notion.com/v1/"
 )
 
+const (
+	StatusNew      = "новая"
+	StatusBacklog  = "бэклог"
+	StatusDone     = "уже готово"
+	StatusArchived = "архивировано"
+)
+
 func NewNotion(token string) *Notion {
 	n := &Notion{
 		token: token,

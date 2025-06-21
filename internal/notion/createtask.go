@@ -39,7 +39,7 @@ func newCreatePayload(createRequest *CreateTaskRequest) *createPayload {
 		},
 		"Статус": map[string]interface{}{
 			"select": map[string]string{
-				"name": "новая",
+				"name": StatusNew,
 			},
 		},
 	}
