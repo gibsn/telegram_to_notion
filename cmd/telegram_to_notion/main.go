@@ -81,6 +81,9 @@ func main() {
 		pinger.SetDebug(debug)
 	}
 
+	// Set the tasks cache in the request processor
+	p.SetTasksCache(c)
+
 	go p.ProcessRequests()
 	go c.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
 	go pinger.PingPeriodically()

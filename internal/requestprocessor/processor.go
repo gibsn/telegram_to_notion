@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
+	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -24,6 +25,7 @@ type RequestProcessor struct {
 
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
+	tasksCache   *taskscache.Cache
 
 	allowedToCreate map[string]bool
 
@@ -58,6 +60,10 @@ func NewRequestProcessor(
 
 func (p *RequestProcessor) SetDebug(debug bool) {
 	p.debug = debug
+}
+
+func (p *RequestProcessor) SetTasksCache(cache *taskscache.Cache) {
+	p.tasksCache = cache
 }
 
 type commandCommon struct {
@@ -193,6 +199,17 @@ func (p *RequestProcessor) parseDoneCommand(message commandCommon) (
 	return req, nil
 }
 
+func (p *RequestProcessor) parseTasksCommand(message commandCommon) (
+	string, error,
+) {
+	userID := p.nameResolver.TgToNotion("@" + message.fromUserName)
+	if userID == "" {
+		return "", fmt.Errorf("user %s is not found in the system", message.fromUserName)
+	}
+
+	return userID, nil
+}
+
 type commandHandler func(commandCommon) (string, error)
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -210,6 +227,12 @@ func (p *RequestProcessor) ProcessRequests() {
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
+
+		// Enable HTML parsing for /tasks command to support hyperlinks
+		if strings.HasPrefix(update.Message.Text, "/tasks") {
+			msg.ParseMode = "HTML"
+		}
+
 		if _, err := p.bot.Send(msg); err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
 		}
@@ -231,6 +254,8 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 		reply, err = withErrorReply(message, p.processDeadline)
 	case "/done":
 		reply, err = withErrorReply(message, p.processDone)
+	case "/tasks":
+		reply, err = withErrorReply(message, p.processTasks)
 	default:
 		err = errUnknownCommand
 		reply = "🖕🖕🖕"
@@ -263,6 +288,11 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/done":
 		reply = fmt.Sprintf(
 			"%s\n\nMust be a reply to a message with task link \nUsage:\n/done",
+			err.Error(),
+		)
+	case "/tasks":
+		reply = fmt.Sprintf(
+			"%s\n\nUsage:\n/tasks",
 			err.Error(),
 		)
 	}
@@ -343,4 +373,39 @@ func (p *RequestProcessor) processDone(message commandCommon) (string, error) {
 	reply := "Task has been successfully marked as Done"
 
 	return reply, nil
+}
+
+func (p *RequestProcessor) processTasks(message commandCommon) (string, error) {
+	userID, err := p.parseTasksCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tasksCache == nil {
+		return "", fmt.Errorf("tasks cache is not initialized")
+	}
+
+	tasks, err := p.tasksCache.GetTasksForUser(userID)
+	if err != nil {
+		return "", fmt.Errorf("error loading tasks: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		return "No tasks found for you", nil
+	}
+
+	var reply strings.Builder
+	reply.WriteString("Your tasks:\n\n")
+
+	for i, task := range tasks {
+		reply.WriteString(fmt.Sprintf("%d. <a href=\"%s\">%s</a>", i+1, task.Link, task.Title))
+
+		if !task.Deadline.IsZero() {
+			reply.WriteString(fmt.Sprintf(" (Deadline: %s)", task.Deadline.Format("2006-01-02")))
+		}
+
+		reply.WriteString("\n")
+	}
+
+	return reply.String(), nil
 }

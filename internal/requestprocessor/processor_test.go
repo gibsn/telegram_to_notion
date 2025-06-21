@@ -324,3 +324,55 @@ func TestParseDoneCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTasksCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		fromUserName string
+		expectErr    bool
+		want         string
+	}{
+		{
+			name:         "valid user",
+			fromUserName: "gibsn",
+			expectErr:    false,
+			want:         "7439e2ca-75f8-4024-b170-620ef7ed08b1",
+		},
+		{
+			name:         "another valid user",
+			fromUserName: "alexander_zh",
+			expectErr:    false,
+			want:         "9e8f4963-fd1c-4bb5-bdd2-7f29a9a8698a",
+		},
+		{
+			name:         "unknown user",
+			fromUserName: "unknown_user",
+			expectErr:    true,
+			want:         "",
+		},
+		{
+			name:         "empty username",
+			fromUserName: "",
+			expectErr:    true,
+			want:         "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command := commandCommon{
+				fromUserName: tt.fromUserName,
+			}
+
+			processor := NewRequestProcessor(nil, "", nil)
+			got, err := processor.parseTasksCommand(command)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
