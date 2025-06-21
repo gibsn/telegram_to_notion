@@ -4,11 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+)
+
+var (
+	errInvalidCommand = errors.New("invalid command")
+	errUnknownCommand = errors.New("unknown command")
 )
 
 type RequestProcessor struct {
@@ -20,65 +27,9 @@ type RequestProcessor struct {
 
 	allowedToCreate map[string]bool
 
+	taskLinkParser *regexp.Regexp
+
 	debug bool
-}
-
-type UserResolver struct {
-	tgToNotion map[string]string
-	notionToTg map[string]string
-}
-
-var (
-	errUnknownCommand = errors.New("unknown command")
-)
-
-func NewUserResolver() *UserResolver {
-	r := &UserResolver{}
-
-	r.tgToNotion = map[string]string{
-		"@alexander_zh": "9e8f4963-fd1c-4bb5-bdd2-7f29a9a8698a",
-		"@vomadan":      "0724b18e-320d-4fce-87f6-95d69b51c2c0",
-		"@fenyakolles":  "78694531-146f-4abd-b29b-093278cab708",
-		"@nikitacmc":    "e6f7887a-7123-4a83-a5da-ded24467d5e2",
-		"@homesick94":   "3c02801c-1a5a-428f-b217-6d53032a21c9",
-		"@gibsn":        "7439e2ca-75f8-4024-b170-620ef7ed08b1",
-		"@bond_lullaby": "aea80e9c-7a69-4180-8a38-6d274af25f4c",
-	}
-
-	r.notionToTg = map[string]string{
-		"9e8f4963-fd1c-4bb5-bdd2-7f29a9a8698a": "@alexander_zh",
-		"0724b18e-320d-4fce-87f6-95d69b51c2c0": "@vomadan",
-		"78694531-146f-4abd-b29b-093278cab708": "@fenyakolles",
-		"e6f7887a-7123-4a83-a5da-ded24467d5e2": "@nikitacmc",
-		"3c02801c-1a5a-428f-b217-6d53032a21c9": "@homesick94",
-		"7439e2ca-75f8-4024-b170-620ef7ed08b1": "@gibsn",
-		"aea80e9c-7a69-4180-8a38-6d274af25f4c": "@bond_lullaby",
-	}
-
-	return r
-}
-
-func (r *UserResolver) TgToNotion(tgName string) string {
-	return r.tgToNotion[strings.ToLower(strings.TrimSpace(tgName))]
-}
-
-func (r *UserResolver) NotionToTg(notionID string) string {
-	return r.notionToTg[strings.ToLower(strings.TrimSpace(notionID))]
-}
-
-func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
-	resolved := make([]string, 0, len(tgNames))
-
-	for _, tgName := range tgNames {
-		resolvedName := r.TgToNotion(tgName)
-		if resolvedName == "" {
-			return nil, fmt.Errorf("login unknown: %s", tgName)
-		}
-
-		resolved = append(resolved, resolvedName)
-	}
-
-	return resolved, nil
 }
 
 func NewRequestProcessor(
@@ -89,6 +40,8 @@ func NewRequestProcessor(
 		notionDBID: dbid,
 		bot:        bot,
 	}
+
+	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
 
 	p.nameResolver = NewUserResolver()
 	p.allowedToCreate = map[string]bool{
@@ -107,46 +60,64 @@ func (p *RequestProcessor) SetDebug(debug bool) {
 	p.debug = debug
 }
 
-func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Update) (
-	*notion.CreateTaskRequest, error,
-) {
-	fromUserName := strings.ToLower(update.Message.From.UserName)
-	isPrivate := update.Message.Chat.IsPrivate()
+type commandCommon struct {
+	command       string
+	restOfMessage string
 
-	if !p.allowedToCreate[fromUserName] {
-		return nil, fmt.Errorf("user %s is not allowed to create tasks", fromUserName)
-	}
+	repliedToText string
 
-	req, err := parseTelegramRequestMessage(update.Message.Text, isPrivate)
-	if err != nil {
-		return nil, err
-	}
-
-	// set assignee to the sender if the message came from direct messages
-	if isPrivate {
-		req.Assignees = []string{"@" + fromUserName}
-	}
-
-	return req, err
+	fromUserName string
+	isPrivate    bool
 }
 
-func parseTelegramRequestMessage(text string, isPrivate bool) (
-	*notion.CreateTaskRequest, error,
+func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Update) (
+	commandCommon, error,
 ) {
-	if !strings.HasPrefix(text, "/task") {
-		return nil, errUnknownCommand
+	fromUserName := strings.ToLower(update.Message.From.UserName)
+
+	if !p.allowedToCreate[fromUserName] {
+		return commandCommon{}, fmt.Errorf("user %s is not allowed to send commands", fromUserName)
 	}
 
-	lines := strings.Split(text, "\n")
+	command := extractCommand(update.Message.Text)
 
-	if !isPrivate && len(lines) < 2 {
+	if update.Message.ReplyToMessage != nil {
+		command.repliedToText = update.Message.ReplyToMessage.Text
+	}
+	command.isPrivate = update.Message.Chat.IsPrivate()
+	command.fromUserName = fromUserName
+
+	return command, nil
+}
+
+func extractCommand(text string) commandCommon {
+	firstLine := strings.SplitN(text, "\n", 2)[0]
+	command := strings.SplitN(firstLine, " ", 2)[0]
+
+	var restOfMessage string
+	if commandAndRest := strings.SplitN(text, " ", 2); len(commandAndRest) > 1 {
+		restOfMessage = commandAndRest[1]
+	}
+
+	return commandCommon{
+		command:       command,
+		restOfMessage: restOfMessage,
+	}
+}
+
+func parseTaskCommand(message commandCommon) (
+	*notion.CreateTaskRequest, error,
+) {
+	lines := strings.Split(message.restOfMessage, "\n")
+
+	if !message.isPrivate && len(lines) < 2 {
 		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
 	req := notion.NewCreateTaskRequest()
 
 	// the first line is the command itself and it has the task's name
-	req.TaskName = strings.TrimSpace(strings.TrimPrefix(lines[0], "/task"))
+	req.TaskName = strings.TrimSpace(lines[0])
 	if len(req.TaskName) == 0 {
 		return nil, fmt.Errorf("please provide the task's name")
 	}
@@ -154,7 +125,7 @@ func parseTelegramRequestMessage(text string, isPrivate bool) (
 	// the second line is the assignee if the message came from the public chat. if the
 	// message came from direct messages then the assignee is set to the sender
 	if len(lines) >= 2 {
-		if isPrivate {
+		if message.isPrivate {
 			req.Description = strings.Join(lines[1:], "\n")
 		} else {
 			req.Assignees = strings.Fields(lines[1])
@@ -163,12 +134,46 @@ func parseTelegramRequestMessage(text string, isPrivate bool) (
 
 	// the third line is only present in public chats and is optional. it contains
 	// description if present
-	if len(lines) >= 3 && !isPrivate {
+	if len(lines) >= 3 && !message.isPrivate {
 		req.Description = strings.Join(lines[2:], "\n")
+	}
+
+	// set assignee to the sender if the message came from direct messages
+	if message.isPrivate {
+		req.Assignees = []string{"@" + message.fromUserName}
 	}
 
 	return req, nil
 }
+
+func (p *RequestProcessor) parseSetDeadlineCommand(message commandCommon) (
+	*notion.SetDeadlineRequest, error,
+) {
+	req := &notion.SetDeadlineRequest{}
+
+	if message.repliedToText == "" {
+		return nil, fmt.Errorf("command is not a reply to any message")
+	}
+
+	match := p.taskLinkParser.FindString(message.repliedToText)
+	if match == "" {
+		return nil, fmt.Errorf("command is not a reply to a task")
+	}
+
+	req.TaskLink = match
+
+	deadlineStr := strings.TrimSpace(message.restOfMessage)
+	deadlineParsed, err := time.Parse("2006-01-02", deadlineStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid deadline %s", deadlineStr)
+	}
+
+	req.Deadline = deadlineParsed
+
+	return req, err
+}
+
+type commandHandler func(commandCommon) (string, error)
 
 func (p *RequestProcessor) ProcessRequests() {
 	u := tgbotapi.NewUpdate(0)
@@ -179,36 +184,9 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
-		req, err := p.parseAndValidateTelegramRequest(update)
+		reply, err := p.processRequest(update)
 		if err != nil {
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
-
-			txt := err.Error()
-			if errors.Is(err, errUnknownCommand) {
-				txt = "🖕🖕🖕"
-			}
-
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, txt)
-
-			if _, err := p.bot.Send(msg); err != nil {
-				log.Printf("Could not send message to Telegram: %v", err)
-			}
-
-			continue
-		}
-
-		var reply string
-
-		url, err := p.CreateTask(req)
-		if err != nil {
-			log.Printf("error: %s", err)
-			reply = err.Error()
-		} else {
-			reply = fmt.Sprintf(
-				"Task has been successfully created and assigned to %s:\n%s",
-				strings.Join(req.Assignees, ", "),
-				url,
-			)
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
@@ -218,7 +196,59 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, error) {
+func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error) {
+	message, err := p.parseAndValidateTelegramRequest(update)
+	if err != nil {
+		return "", err
+	}
+
+	var reply string
+
+	switch message.command {
+	case "/task":
+		reply, err = withErrorReply(message, p.processTask)
+	case "/deadline":
+		reply, err = withErrorReply(message, p.processDeadline)
+	default:
+		err = errUnknownCommand
+		reply = "🖕🖕🖕"
+	}
+
+	return reply, err
+}
+
+func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
+	reply, err := cb(message)
+	if err == nil {
+		return reply, nil
+	}
+
+	if !errors.Is(err, errInvalidCommand) {
+		return err.Error(), err
+	}
+
+	switch message.command {
+	case "/task":
+		reply = fmt.Sprintf(
+			"%s\n\nUsage:\n/task $task_name\n$assignee1 $assignee2 ...\n$task_description (optional)",
+			err.Error(),
+		)
+	case "/deadline":
+		reply = fmt.Sprintf(
+			"%s\n\nMust be a reply to a message with task link \nUsage:\n/deadline YYYY-MM-DD",
+			err.Error(),
+		)
+	}
+
+	return reply, err
+}
+
+func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
+	req, err := parseTaskCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
 	req.NotionDBID = p.notionDBID
 
 	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
@@ -238,5 +268,33 @@ func (p *RequestProcessor) CreateTask(req *notion.CreateTaskRequest) (string, er
 		return "", fmt.Errorf("error creating a task in Notion: %w", err)
 	}
 
-	return url, nil
+	reply := fmt.Sprintf(
+		"Task has been successfully created and assigned to %s:\n%s",
+		strings.Join(req.Assignees, ", "),
+		url,
+	)
+
+	return reply, nil
+}
+
+func (p *RequestProcessor) processDeadline(message commandCommon) (string, error) {
+	req, err := p.parseSetDeadlineCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.debug {
+		req.Debug = true
+	}
+
+	if err := p.notion.SetDeadline(req); err != nil {
+		return "", fmt.Errorf("could not set deadline to %s: %w", req.Deadline.Format("2006-01-02"), err)
+	}
+
+	reply := fmt.Sprintf(
+		"Deadline has been successfully set to %s",
+		req.Deadline.Format("2006-01-02"),
+	)
+
+	return reply, nil
 }

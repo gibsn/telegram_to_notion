@@ -7,17 +7,18 @@ import (
 	"strings"
 
 	notionapi "github.com/gibsn/telegram_to_notion/internal/notion"
-	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
 	var botToken, notionToken, notionDBID string
+	var debug bool
 
 	flag.StringVar(&botToken, "telegram_token", "", "Telegram Bot Token")
 	flag.StringVar(&notionToken, "notion_token", "", "Notion Integration Token")
 	flag.StringVar(&notionDBID, "notion_db", "", "Notion Database ID")
+	flag.BoolVar(&debug, "debug", false, "Debug mode")
 	flag.Parse()
 
 	if botToken == "" || notionToken == "" || notionDBID == "" {
@@ -35,17 +36,16 @@ func main() {
 
 	notion := notionapi.NewNotion(notionToken)
 
-	p := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
-	p.SetDebug(true)
-
 	var reply string
 
 	req := notionapi.NewCreateTaskRequest()
-	req.TaskName = "test_task"
-	req.Description = "test_description"
-	req.Assignees = []string{"@gibsn"}
+	req.NotionDBID = notionDBID
+	req.TaskName = "test_task_2"
+	req.Description = "test_description_2"
+	req.Assignees = []string{"7439e2ca-75f8-4024-b170-620ef7ed08b1"}
+	req.Debug = debug
 
-	url, err := p.CreateTask(req)
+	url, err := notion.CreateNotionTask(req)
 	if err != nil {
 		log.Printf("error: %s", err)
 		reply = err.Error()

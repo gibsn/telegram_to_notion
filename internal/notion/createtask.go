@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-const (
-	retriesCreate = 2
-)
-
 type createPayload struct {
 	Parent struct {
 		DatabaseID string `json:"database_id"`
@@ -110,6 +106,7 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	if r.Debug {
 		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
 		log.Println(string(prettyPayload))
+		log.Println(notionAPI + "pages")
 	}
 
 	req, err := http.NewRequest("POST", notionAPI+"pages", bytes.NewBuffer(body))
@@ -121,32 +118,11 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
-	var resp *http.Response
-
-	for i := 1; i <= retriesCreate; i++ {
-		resp, err = n.client.Do(req)
-
-		if err != nil || resp.StatusCode >= 300 {
-			log.Printf("request to Notion API failed: %s", err)
-			if resp != nil {
-				resp.Body.Close()
-			}
-
-			if i < retriesCreate {
-				log.Printf("retrying request to Notion API")
-				continue
-			}
-
-			if err == nil {
-				err = fmt.Errorf("status code is %d", resp.StatusCode)
-			}
-
-			return "", fmt.Errorf("request to Notion API failed: %w", err)
-		}
-
-		defer resp.Body.Close()
-		break
+	resp, err := n.doWithRetries(req)
+	if err != nil {
+		return "", err
 	}
+	defer resp.Body.Close()
 
 	var result createResult
 
