@@ -2,13 +2,14 @@ package requestprocessor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseTelegramRequestMessage(t *testing.T) {
+func TestParseTaskCommand(t *testing.T) {
 	tests := []struct {
 		name         string
 		input        string
@@ -149,6 +150,92 @@ test_description`,
 				assert.Equal(t, tt.want.TaskName, got.TaskName)
 				assert.Equal(t, tt.want.Assignees, got.Assignees)
 				assert.Equal(t, tt.want.Description, got.Description)
+			}
+		})
+	}
+}
+func TestParseSetDeadlineCommand(t *testing.T) {
+	tests := []struct {
+		name          string
+		repliedToText string
+		input         string
+		expectErr     bool
+		want          *notion.SetDeadlineRequest
+	}{
+		{
+			name:          "valid deadline",
+			repliedToText: "Task created: https://www.notion.so/abc123",
+			input:         "/deadline 2024-12-31",
+			expectErr:     false,
+			want: &notion.SetDeadlineRequest{
+				TaskLink: "https://www.notion.so/abc123",
+				Deadline: time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:          "no replied text",
+			repliedToText: "",
+			input:         "/deadline 2024-12-31",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "no task link in replied text",
+			repliedToText: "This is just a regular message",
+			input:         "/deadline 2024-12-31",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "invalid date format",
+			repliedToText: "Task created: https://www.notion.so/abc123",
+			input:         "/deadline 2024/12/31",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "empty date",
+			repliedToText: "Task created: https://www.notion.so/abc123",
+			input:         "/deadline",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "multiple task links - uses first one",
+			repliedToText: "Task created: https://www.notion.so/abc123 and another https://www.notion.so/def456",
+			input:         "/deadline 2024-12-31",
+			expectErr:     false,
+			want: &notion.SetDeadlineRequest{
+				TaskLink: "https://www.notion.so/abc123",
+				Deadline: time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:          "task link with different format",
+			repliedToText: "Check this out: https://www.notion.so/task-123-456",
+			input:         "/deadline 2024-01-15",
+			expectErr:     false,
+			want: &notion.SetDeadlineRequest{
+				TaskLink: "https://www.notion.so/task-123-456",
+				Deadline: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command := extractCommand(tt.input)
+			command.repliedToText = tt.repliedToText
+
+			processor := NewRequestProcessor(nil, "", nil)
+			got, err := processor.parseSetDeadlineCommand(command)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want.TaskLink, got.TaskLink)
+				assert.Equal(t, tt.want.Deadline, got.Deadline)
 			}
 		})
 	}
