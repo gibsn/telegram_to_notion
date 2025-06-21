@@ -227,11 +227,7 @@ func (p *RequestProcessor) ProcessRequests() {
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
-
-		// Enable HTML parsing for /tasks command to support hyperlinks
-		if strings.HasPrefix(update.Message.Text, "/tasks") {
-			msg.ParseMode = "HTML"
-		}
+		msg.ParseMode = "HTML"
 
 		if _, err := p.bot.Send(msg); err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
