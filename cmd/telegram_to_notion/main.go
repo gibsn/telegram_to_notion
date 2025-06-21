@@ -78,6 +78,7 @@ func main() {
 	pinger.SetPingText(pingText)
 
 	if debug {
+		notion.SetDebug(debug)
 		processor.SetDebug(debug)
 		cache.SetDebug(debug)
 		pinger.SetDebug(debug)

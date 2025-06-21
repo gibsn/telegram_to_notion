@@ -153,6 +153,13 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 				"Could not load task (id: %s): invalid response fron Notion API: %v",
 				task.ID, err,
 			)
+			continue
+		}
+		if n.debug {
+			fmt.Printf(
+				"Task: %s\nAssignees: %s\nDeadline: %s\nURL: %s\n---",
+				taskParsed.Title, taskParsed.Assignees, taskParsed.Deadline, taskParsed.Link,
+			)
 		}
 
 		tasks = append(tasks, taskParsed)

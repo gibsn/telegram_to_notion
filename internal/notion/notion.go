@@ -9,6 +9,8 @@ import (
 )
 
 type Notion struct {
+	debug bool
+
 	token string
 
 	client *http.Client
@@ -87,4 +89,8 @@ func (n *Notion) doWithRetries(req *http.Request) (*http.Response, error) {
 	}
 
 	return resp, nil
+}
+
+func (n *Notion) SetDebug(debug bool) {
+	n.debug = debug
 }

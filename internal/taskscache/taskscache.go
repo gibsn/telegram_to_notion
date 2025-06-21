@@ -48,13 +48,6 @@ func (c *Cache) RefreshPeriodically() {
 
 		log.Printf("%d tasks loaded, next refresh in %s", len(tasks), c.period)
 
-		if c.debug {
-			for _, t := range tasks {
-				fmt.Printf(
-					"Task: %s\nAssignees: %s\nDeadline: %s\nURL: %s\n---",
-					t.Title, t.Assignees, t.Deadline, t.Link)
-			}
-		}
 		if tasks != nil {
 			c.cacheLock.Lock()
 			c.cache = tasks
@@ -85,14 +78,6 @@ func (c *Cache) RefreshCache() error {
 
 	log.Printf("%d tasks loaded", len(tasks))
 
-	if c.debug {
-		for _, t := range tasks {
-			fmt.Printf(
-				"Task: %s\nAssignees: %s\nDeadline: %s\nURL: %s\n---",
-				t.Title, t.Assignees, t.Deadline, t.Link)
-		}
-	}
-
 	c.cacheLock.Lock()
 	c.cache = tasks
 	c.cacheLock.Unlock()
@@ -101,12 +86,10 @@ func (c *Cache) RefreshCache() error {
 }
 
 func (c *Cache) GetTasksForUser(userID string) ([]notion.Task, error) {
-	// Try to refresh the cache first
 	if err := c.RefreshCache(); err != nil {
 		log.Printf("Could not refresh cache: %v, using existing cache", err)
 	}
 
-	// Get tasks from cache
 	c.cacheLock.RLock()
 	cachedTasks := c.cache
 	c.cacheLock.RUnlock()
