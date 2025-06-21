@@ -1,0 +1,42 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Test bot",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/telegram_to_notion",
+            "args": [
+                "-telegram_token=7340931873:AAFome8aTWqr-oduj-PAlXx3PRyDL_X_bRU",
+                "-notion_token=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", 
+                "-notion_db=f2373a788b3541d0893dae46abc6b2de",
+                "-ping_chat_id=-4910620546",
+                "-ping_period_time=5s",
+                "-tasks_cache_period=5s"
+            ],
+            "env": {},
+            "showLog": true
+        },
+        {
+            "name": "Launch Test Request",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/test_request",
+            "args": [],
+            "env": {},
+            "showLog": true
+        },
+        {
+            "name": "Launch Get Chat ID",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/get_chat_id",
+            "args": [],
+            "env": {},
+            "showLog": true
+        }
+    ]
+} 
