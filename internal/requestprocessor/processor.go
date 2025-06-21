@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,7 +15,22 @@ import (
 
 var (
 	errInvalidCommand = errors.New("invalid command")
+	errUnknownCommand = errors.New("unknown command")
 )
+
+type RequestProcessor struct {
+	notion     *notion.Notion
+	notionDBID string
+
+	bot          *tgbotapi.BotAPI
+	nameResolver *UserResolver
+
+	allowedToCreate map[string]bool
+
+	taskLinkParser *regexp.Regexp
+
+	debug bool
+}
 
 func NewRequestProcessor(
 	notion *notion.Notion, dbid string, bot *tgbotapi.BotAPI,
@@ -24,6 +40,8 @@ func NewRequestProcessor(
 		notionDBID: dbid,
 		bot:        bot,
 	}
+
+	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
 
 	p.nameResolver = NewUserResolver()
 	p.allowedToCreate = map[string]bool{
@@ -46,6 +64,8 @@ type commandCommon struct {
 	command       string
 	restOfMessage string
 
+	repliedToText string
+
 	fromUserName string
 	isPrivate    bool
 }
@@ -60,6 +80,10 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 	}
 
 	command := extractCommand(update.Message.Text)
+
+	if update.Message.ReplyToMessage != nil {
+		command.repliedToText = update.Message.ReplyToMessage.Text
+	}
 	command.isPrivate = update.Message.Chat.IsPrivate()
 	command.fromUserName = fromUserName
 
@@ -122,8 +146,21 @@ func parseTaskCommand(message commandCommon) (
 	return req, nil
 }
 
-func parseSetDeadlineCommand(message commandCommon) (*notion.SetDeadlineRequest, error) {
+func (p *RequestProcessor) parseSetDeadlineCommand(message commandCommon) (
+	*notion.SetDeadlineRequest, error,
+) {
 	req := &notion.SetDeadlineRequest{}
+
+	if message.repliedToText == "" {
+		return nil, fmt.Errorf("command is not a reply to any message")
+	}
+
+	match := p.taskLinkParser.FindString(message.repliedToText)
+	if match == "" {
+		return nil, fmt.Errorf("command is not a reply to a task")
+	}
+
+	req.TaskLink = match
 
 	deadlineStr := strings.TrimSpace(message.restOfMessage)
 	deadlineParsed, err := time.Parse("2006-01-02", deadlineStr)
@@ -147,37 +184,9 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
-		message, err := p.parseAndValidateTelegramRequest(update)
+		reply, err := p.processRequest(update)
 		if err != nil {
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
-
-			txt := err.Error()
-			if errors.Is(err, errUnknownCommand) {
-				txt = "🖕🖕🖕"
-			}
-
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, txt)
-
-			if _, err := p.bot.Send(msg); err != nil {
-				log.Printf("Could not send message to Telegram: %v", err)
-			}
-
-			continue
-		}
-
-		var reply string
-
-		switch message.command {
-		case "/task":
-			reply, err = withErrorReply(message, p.processTask)
-		case "/deadline":
-			reply, err = withErrorReply(message, p.processDeadline)
-		default:
-			err = errUnknownCommand
-		}
-
-		if err != nil {
-			log.Printf("Error: %s", err)
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
@@ -187,8 +196,32 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
+func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error) {
+	message, err := p.parseAndValidateTelegramRequest(update)
+	if err != nil {
+		return "", err
+	}
+
+	var reply string
+
+	switch message.command {
+	case "/task":
+		reply, err = withErrorReply(message, p.processTask)
+	case "/deadline":
+		reply, err = withErrorReply(message, p.processDeadline)
+	default:
+		err = errUnknownCommand
+		reply = "🖕🖕🖕"
+	}
+
+	return reply, err
+}
+
 func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	reply, err := cb(message)
+	if err == nil {
+		return reply, nil
+	}
 
 	if !errors.Is(err, errInvalidCommand) {
 		return err.Error(), err
@@ -202,7 +235,7 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 		)
 	case "/deadline":
 		reply = fmt.Sprintf(
-			"%s\n\nMust be a reply to a message with task link \n Usage:\n/deadline YYYY-MM-DD",
+			"%s\n\nMust be a reply to a message with task link \nUsage:\n/deadline YYYY-MM-DD",
 			err.Error(),
 		)
 	}
@@ -245,7 +278,7 @@ func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
 }
 
 func (p *RequestProcessor) processDeadline(message commandCommon) (string, error) {
-	req, err := parseSetDeadlineCommand(message)
+	req, err := p.parseSetDeadlineCommand(message)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
 	}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -22,14 +21,14 @@ type SetDeadlineRequest struct {
 func (n *Notion) SetDeadline(setRequest *SetDeadlineRequest) error {
 	pageID := extractPageID(setRequest.TaskLink)
 	if pageID == "" {
-		return fmt.Errorf("invalid notion link")
+		return fmt.Errorf("invalid task link %s", setRequest.TaskLink)
 	}
 
-	isoDate := setRequest.Deadline.Format(time.RFC3339)
+	isoDate := setRequest.Deadline.Format("2006-01-02")
 
 	payload := map[string]interface{}{
 		"properties": map[string]interface{}{
-			"Deadline": map[string]interface{}{
+			"Дедлайн": map[string]interface{}{
 				"date": map[string]string{
 					"start": isoDate,
 				},
@@ -51,42 +50,22 @@ func (n *Notion) SetDeadline(setRequest *SetDeadlineRequest) error {
 	req.Header.Set("Notion-Version", "2022-06-28")
 	req.Header.Set("Content-Type", "application/json")
 
-	var resp *http.Response
-
-	for i := 1; i <= retriesCreate; i++ {
-		resp, err = n.client.Do(req)
-
-		if err != nil || resp.StatusCode >= 300 {
-			log.Printf("request to Notion API failed: %s", err)
-			if resp != nil {
-				resp.Body.Close()
-			}
-
-			if i < retriesCreate {
-				log.Printf("retrying request to Notion API")
-				continue
-			}
-
-			if err == nil {
-				err = fmt.Errorf("status code is %d", resp.StatusCode)
-			}
-
-			return fmt.Errorf("request to Notion API failed: %w", err)
-		}
-
-		defer resp.Body.Close()
-		break
+	resp, err := n.doWithRetries(req)
+	if err != nil {
+		return err
 	}
+	defer resp.Body.Close()
 
 	return nil
 }
 
 func extractPageID(link string) string {
-	parts := strings.Split(link, "-")
-	if len(parts) == 0 {
-		return ""
-	}
-	id := parts[len(parts)-1]
+	parts := strings.Split(link, "/")
+	lastPart := parts[len(parts)-1]
+
+	idParts := strings.Split(lastPart, "-")
+	id := idParts[len(idParts)-1]
+
 	id = strings.ReplaceAll(id, "-", "")
 
 	if len(id) == 32 {

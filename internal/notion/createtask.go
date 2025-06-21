@@ -4,15 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
-)
-
-const (
-	retriesCreate = 2
 )
 
 type createPayload struct {
@@ -123,38 +118,11 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
-	var resp *http.Response
-
-	for i := 1; i <= retriesCreate; i++ {
-		resp, err = n.client.Do(req)
-
-		if err != nil || resp.StatusCode >= 300 {
-			log.Printf("request to Notion API failed: %s", err)
-			if resp != nil {
-				if resp.StatusCode == 400 {
-					bodyBytes, _ := io.ReadAll(resp.Body)
-					log.Printf("Response body: %s", string(bodyBytes))
-					resp.Body.Close()
-					resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-				}
-				resp.Body.Close()
-			}
-
-			if i < retriesCreate {
-				log.Printf("retrying request to Notion API")
-				continue
-			}
-
-			if err == nil {
-				err = fmt.Errorf("status code is %d", resp.StatusCode)
-			}
-
-			return "", fmt.Errorf("request to Notion API failed: %w", err)
-		}
-
-		defer resp.Body.Close()
-		break
+	resp, err := n.doWithRetries(req)
+	if err != nil {
+		return "", err
 	}
+	defer resp.Body.Close()
 
 	var result createResult
 

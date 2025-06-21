@@ -1,35 +1,14 @@
 package requestprocessor
 
 import (
-	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/gibsn/telegram_to_notion/internal/notion"
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
-
-type RequestProcessor struct {
-	notion     *notion.Notion
-	notionDBID string
-
-	bot          *tgbotapi.BotAPI
-	nameResolver *UserResolver
-
-	allowedToCreate map[string]bool
-
-	debug bool
-}
 
 type UserResolver struct {
 	tgToNotion map[string]string
 	notionToTg map[string]string
 }
-
-var (
-	errUnknownCommand = errors.New("unknown command")
-)
 
 func NewUserResolver() *UserResolver {
 	r := &UserResolver{}
