@@ -24,13 +24,11 @@ func (n *Notion) SetDeadline(setRequest *SetDeadlineRequest) error {
 		return fmt.Errorf("invalid task link %s", setRequest.TaskLink)
 	}
 
-	isoDate := setRequest.Deadline.Format("2006-01-02")
-
 	payload := map[string]interface{}{
 		"properties": map[string]interface{}{
 			"Дедлайн": map[string]interface{}{
 				"date": map[string]string{
-					"start": isoDate,
+					"start": setRequest.Deadline.Format("2006-01-02"),
 				},
 			},
 		},
