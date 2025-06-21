@@ -57,10 +57,12 @@ func main() {
 	log.Printf("Successfully connected to Telegram")
 
 	notion := notion.NewNotion(notionToken)
-	p := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
-	c := taskscache.NewTasksCache(notion, notionDBID, tasksCachePeriod)
+	cache := taskscache.NewTasksCache(notion, notionDBID, tasksCachePeriod)
 
-	pinger, err := pinger.NewPinger(c, bot, pingChatID)
+	processor := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
+	processor.SetTasksCache(cache)
+
+	pinger, err := pinger.NewPinger(cache, bot, pingChatID)
 	if err != nil {
 		log.Fatalf("Could not initialise pinger: %v", err)
 	}
@@ -76,13 +78,14 @@ func main() {
 	pinger.SetPingText(pingText)
 
 	if debug {
-		p.SetDebug(debug)
-		c.SetDebug(debug)
+		notion.SetDebug(debug)
+		processor.SetDebug(debug)
+		cache.SetDebug(debug)
 		pinger.SetDebug(debug)
 	}
 
-	go p.ProcessRequests()
-	go c.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
+	go processor.ProcessRequests()
+	go cache.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
 	go pinger.PingPeriodically()
 
 	for {

@@ -48,13 +48,6 @@ func (c *Cache) RefreshPeriodically() {
 
 		log.Printf("%d tasks loaded, next refresh in %s", len(tasks), c.period)
 
-		if c.debug {
-			for _, t := range tasks {
-				fmt.Printf(
-					"Task: %s\nAssignees: %s\nDeadline: %s\nURL: %s\n---",
-					t.Title, t.Assignees, t.Deadline, t.Link)
-			}
-		}
 		if tasks != nil {
 			c.cacheLock.Lock()
 			c.cache = tasks
@@ -73,6 +66,46 @@ func (c *Cache) Tasks() []notion.Task {
 	c.cacheLock.RUnlock()
 
 	return tasks
+}
+
+func (c *Cache) RefreshCache() error {
+	log.Printf("Refreshing tasks cache")
+
+	tasks, err := c.notion.LoadTasks(c.dbID)
+	if err != nil {
+		return fmt.Errorf("could not load tasks: %w", err)
+	}
+
+	log.Printf("%d tasks loaded", len(tasks))
+
+	c.cacheLock.Lock()
+	c.cache = tasks
+	c.cacheLock.Unlock()
+
+	return nil
+}
+
+func (c *Cache) GetTasksForUser(userID string) ([]notion.Task, error) {
+	if err := c.RefreshCache(); err != nil {
+		log.Printf("Could not refresh cache: %v, using existing cache", err)
+	}
+
+	c.cacheLock.RLock()
+	cachedTasks := c.cache
+	c.cacheLock.RUnlock()
+
+	// Filter tasks for the user
+	userTasks := make([]notion.Task, 0)
+	for _, task := range cachedTasks {
+		for _, assignee := range task.Assignees {
+			if assignee.ID == userID {
+				userTasks = append(userTasks, task)
+				break
+			}
+		}
+	}
+
+	return userTasks, nil
 }
 
 func (c *Cache) SetDebug(debug bool) {
