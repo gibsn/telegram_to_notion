@@ -9,7 +9,7 @@
             "program": "${workspaceFolder}/cmd/telegram_to_notion",
             "args": [
                 "-telegram_token=7340931873:AAFome8aTWqr-oduj-PAlXx3PRyDL_X_bRU",
-                "-notion_token=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", 
+                "-notion_token=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",
                 "-notion_db=f2373a788b3541d0893dae46abc6b2de",
                 "-ping_chat_id=-4910620546",
                 "-ping_period_time=5s",
@@ -24,7 +24,11 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/cmd/test_request",
-            "args": [],
+            "args": [
+                "-telegram_token=7340931873:AAFome8aTWqr-oduj-PAlXx3PRyDL_X_bRU",
+                "-notion_token=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",
+                "-notion_db=f2373a788b3541d0893dae46abc6b2de"
+            ],
             "env": {},
             "showLog": true
         },
@@ -39,4 +43,4 @@
             "showLog": true
         }
     ]
-} 
+}

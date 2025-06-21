@@ -10,11 +10,12 @@ import (
 
 func TestParseTelegramRequestMessage(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		isPrivate bool
-		want      *notion.CreateTaskRequest
-		expectErr bool
+		name         string
+		input        string
+		isPrivate    bool
+		fromUserName string
+		want         *notion.CreateTaskRequest
+		expectErr    bool
 	}{
 		// isPrivate = false
 		{
@@ -96,12 +97,13 @@ test_description`,
 
 		// isPrivate = true
 		{
-			name:      "private: only task name",
-			input:     `/task test_task`,
-			isPrivate: true,
+			name:         "private: only task name",
+			input:        `/task test_task`,
+			isPrivate:    true,
+			fromUserName: "testuser",
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
-				Assignees:   nil,
+				Assignees:   []string{"@testuser"},
 				Description: "",
 			},
 		},
@@ -109,10 +111,11 @@ test_description`,
 			name: "private: only task name and description",
 			input: `/task test_task
 test_description`,
-			isPrivate: true,
+			isPrivate:    true,
+			fromUserName: "testuser",
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
-				Assignees:   nil,
+				Assignees:   []string{"@testuser"},
 				Description: "test_description",
 			},
 		},
@@ -121,10 +124,11 @@ test_description`,
 			input: `/task test_task
 @gibsn
 test_description`,
-			isPrivate: true,
+			isPrivate:    true,
+			fromUserName: "testuser",
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
-				Assignees:   nil,
+				Assignees:   []string{"@testuser"},
 				Description: "@gibsn\ntest_description",
 			},
 		},
@@ -132,7 +136,11 @@ test_description`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseTelegramRequestMessage(tt.input, tt.isPrivate)
+			command := extractCommand(tt.input)
+			command.isPrivate = tt.isPrivate
+			command.fromUserName = tt.fromUserName
+
+			got, err := parseTaskCommand(command)
 
 			if tt.expectErr {
 				assert.Error(t, err)

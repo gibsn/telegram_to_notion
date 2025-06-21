@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -110,6 +111,7 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	if r.Debug {
 		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
 		log.Println(string(prettyPayload))
+		log.Println(notionAPI + "pages")
 	}
 
 	req, err := http.NewRequest("POST", notionAPI+"pages", bytes.NewBuffer(body))
@@ -129,6 +131,12 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 		if err != nil || resp.StatusCode >= 300 {
 			log.Printf("request to Notion API failed: %s", err)
 			if resp != nil {
+				if resp.StatusCode == 400 {
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					log.Printf("Response body: %s", string(bodyBytes))
+					resp.Body.Close()
+					resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				}
 				resp.Body.Close()
 			}
 

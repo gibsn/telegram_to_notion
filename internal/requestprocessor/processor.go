@@ -59,20 +59,26 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 		return commandCommon{}, fmt.Errorf("user %s is not allowed to send commands", fromUserName)
 	}
 
-	firstLine := strings.SplitN(update.Message.Text, "\n", 2)[0]
+	command := extractCommand(update.Message.Text)
+	command.isPrivate = update.Message.Chat.IsPrivate()
+	command.fromUserName = fromUserName
+
+	return command, nil
+}
+
+func extractCommand(text string) commandCommon {
+	firstLine := strings.SplitN(text, "\n", 2)[0]
 	command := strings.SplitN(firstLine, " ", 2)[0]
 
 	var restOfMessage string
-	if commandAndRest := strings.SplitN(update.Message.Text, " ", 2); len(commandAndRest) > 1 {
+	if commandAndRest := strings.SplitN(text, " ", 2); len(commandAndRest) > 1 {
 		restOfMessage = commandAndRest[1]
 	}
 
 	return commandCommon{
 		command:       command,
 		restOfMessage: restOfMessage,
-		fromUserName:  fromUserName,
-		isPrivate:     update.Message.Chat.IsPrivate(),
-	}, nil
+	}
 }
 
 func parseTaskCommand(message commandCommon) (
@@ -249,7 +255,7 @@ func (p *RequestProcessor) processDeadline(message commandCommon) (string, error
 	}
 
 	if err := p.notion.SetDeadline(req); err != nil {
-		return "", fmt.Errorf("could not set deadline to %s: %w", err)
+		return "", fmt.Errorf("could not set deadline to %s: %w", req.Deadline.Format("2006-01-02"), err)
 	}
 
 	reply := fmt.Sprintf(
