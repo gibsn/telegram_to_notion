@@ -173,6 +173,26 @@ func (p *RequestProcessor) parseSetDeadlineCommand(message commandCommon) (
 	return req, err
 }
 
+func (p *RequestProcessor) parseDoneCommand(message commandCommon) (
+	*notion.SetStatusRequest, error,
+) {
+	req := &notion.SetStatusRequest{}
+
+	if message.repliedToText == "" {
+		return nil, fmt.Errorf("command is not a reply to any message")
+	}
+
+	match := p.taskLinkParser.FindString(message.repliedToText)
+	if match == "" {
+		return nil, fmt.Errorf("command is not a reply to a task")
+	}
+
+	req.TaskLink = match
+	req.Status = notion.StatusDone
+
+	return req, nil
+}
+
 type commandHandler func(commandCommon) (string, error)
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -209,6 +229,8 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 		reply, err = withErrorReply(message, p.processTask)
 	case "/deadline":
 		reply, err = withErrorReply(message, p.processDeadline)
+	case "/done":
+		reply, err = withErrorReply(message, p.processDone)
 	default:
 		err = errUnknownCommand
 		reply = "🖕🖕🖕"
@@ -236,6 +258,11 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/deadline":
 		reply = fmt.Sprintf(
 			"%s\n\nMust be a reply to a message with task link \nUsage:\n/deadline YYYY-MM-DD",
+			err.Error(),
+		)
+	case "/done":
+		reply = fmt.Sprintf(
+			"%s\n\nMust be a reply to a message with task link \nUsage:\n/done",
 			err.Error(),
 		)
 	}
@@ -295,6 +322,25 @@ func (p *RequestProcessor) processDeadline(message commandCommon) (string, error
 		"Deadline has been successfully set to %s",
 		req.Deadline.Format("2006-01-02"),
 	)
+
+	return reply, nil
+}
+
+func (p *RequestProcessor) processDone(message commandCommon) (string, error) {
+	req, err := p.parseDoneCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.debug {
+		req.Debug = true
+	}
+
+	if err := p.notion.SetStatus(req); err != nil {
+		return "", fmt.Errorf("could not set status to done: %w", err)
+	}
+
+	reply := "Task has been successfully marked as Done"
 
 	return reply, nil
 }

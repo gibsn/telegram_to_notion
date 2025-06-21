@@ -11,12 +11,6 @@ import (
 	"time"
 )
 
-const (
-	StatusBacklog  = "бэклог"
-	StatusDone     = "уже готово"
-	StatusArchived = "архивировано"
-)
-
 type loadPayload struct {
 	Filter map[string]interface{} `json:"filter"`
 }

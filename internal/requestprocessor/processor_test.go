@@ -154,6 +154,7 @@ test_description`,
 		})
 	}
 }
+
 func TestParseSetDeadlineCommand(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -236,6 +237,89 @@ func TestParseSetDeadlineCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.want.TaskLink, got.TaskLink)
 				assert.Equal(t, tt.want.Deadline, got.Deadline)
+			}
+		})
+	}
+}
+
+func TestParseDoneCommand(t *testing.T) {
+	tests := []struct {
+		name          string
+		repliedToText string
+		input         string
+		expectErr     bool
+		want          *notion.SetStatusRequest
+	}{
+		{
+			name:          "valid done command",
+			repliedToText: "Task created: https://www.notion.so/abc123",
+			input:         "/done",
+			expectErr:     false,
+			want: &notion.SetStatusRequest{
+				TaskLink: "https://www.notion.so/abc123",
+				Status:   notion.StatusDone,
+			},
+		},
+		{
+			name:          "no replied text",
+			repliedToText: "",
+			input:         "/done",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "no task link in replied text",
+			repliedToText: "This is just a regular message",
+			input:         "/done",
+			expectErr:     true,
+			want:          nil,
+		},
+		{
+			name:          "multiple task links - uses first one",
+			repliedToText: "https://www.notion.so/abc123 and https://www.notion.so/def456",
+			input:         "/done",
+			expectErr:     false,
+			want: &notion.SetStatusRequest{
+				TaskLink: "https://www.notion.so/abc123",
+				Status:   notion.StatusDone,
+			},
+		},
+		{
+			name:          "task link with different format",
+			repliedToText: "Check this out: https://www.notion.so/task-123-456",
+			input:         "/done",
+			expectErr:     false,
+			want: &notion.SetStatusRequest{
+				TaskLink: "https://www.notion.so/task-123-456",
+				Status:   notion.StatusDone,
+			},
+		},
+		{
+			name:          "done command with extra text (should be ignored)",
+			repliedToText: "Task created: https://www.notion.so/abc123",
+			input:         "/done some extra text",
+			expectErr:     false,
+			want: &notion.SetStatusRequest{
+				TaskLink: "https://www.notion.so/abc123",
+				Status:   notion.StatusDone,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command := extractCommand(tt.input)
+			command.repliedToText = tt.repliedToText
+
+			processor := NewRequestProcessor(nil, "", nil)
+			got, err := processor.parseDoneCommand(command)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want.TaskLink, got.TaskLink)
+				assert.Equal(t, tt.want.Status, got.Status)
 			}
 		})
 	}
