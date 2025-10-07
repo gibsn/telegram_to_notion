@@ -103,5 +103,6 @@ issues:
 
 output:
   formats: tab
+  format: colored-line-number
 
 
