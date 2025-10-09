@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"path"
 	"strings"
 )
 
+// Tweak status constants
+const (
+	TweakStatusTODO = "todo"
+)
+
 // LoadTracks queries the tracks database and returns a list of track titles (property "Песня")
-func (n *Notion) LoadTracks(dbID string) ([]string, error) {
+func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 	payload := map[string]interface{}{}
 
 	body, err := json.Marshal(payload)
@@ -28,7 +34,13 @@ func (n *Notion) LoadTracks(dbID string) ([]string, error) {
 
 	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
+
+	if n.debug {
+		url := notionAPI + path.Join("databases", dbID, "query")
+		log.Println(url)
+	}
 
 	resp, err := n.doWithRetries(req)
 	if err != nil {
@@ -38,6 +50,7 @@ func (n *Notion) LoadTracks(dbID string) ([]string, error) {
 
 	var result struct {
 		Results []struct {
+			ID         string `json:"id"`
 			Properties map[string]struct {
 				Title []struct {
 					PlainText string `json:"plain_text"`
@@ -50,16 +63,16 @@ func (n *Notion) LoadTracks(dbID string) ([]string, error) {
 		return nil, err
 	}
 
-	titles := make([]string, 0, len(result.Results))
+	titlesToIDs := make(map[string]string, len(result.Results))
 	for _, r := range result.Results {
-		prop, ok := r.Properties["Песня"]
+		prop, ok := r.Properties["Название"]
 		if !ok || len(prop.Title) == 0 {
 			continue
 		}
-		titles = append(titles, prop.Title[0].PlainText)
+		titlesToIDs[prop.Title[0].PlainText] = r.ID
 	}
 
-	return titles, nil
+	return titlesToIDs, nil
 }
 
 type CreateTweakDemoRequest struct {
@@ -67,6 +80,7 @@ type CreateTweakDemoRequest struct {
 	TitleProperty    string
 	Title            string
 	TrackName        string
+	TrackPageID      string
 	Start            string
 	End              string
 	Explanation      string
@@ -87,12 +101,18 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 					{"text": map[string]string{"content": r.Title}},
 				},
 			},
-			"Песня": map[string]interface{}{
-				"rich_text": []map[string]interface{}{
-					{"text": map[string]string{"content": r.TrackName}},
+			"Статус": map[string]interface{}{
+				"select": map[string]string{
+					"name": TweakStatusTODO,
 				},
 			},
 		},
+	}
+	// Set relation to track page if provided (required by schema)
+	if r.TrackPageID != "" {
+		payload["properties"].(map[string]interface{})["Песня"] = map[string]interface{}{
+			"relation": []map[string]string{{"id": r.TrackPageID}},
+		}
 	}
 
 	// Optional properties
@@ -143,6 +163,7 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 
 	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
 	resp, err := n.doWithRetries(req)

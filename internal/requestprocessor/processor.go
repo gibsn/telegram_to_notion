@@ -10,6 +10,7 @@ import (
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
+	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -26,6 +27,7 @@ type RequestProcessor struct {
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
 	tasksCache   *taskscache.Cache
+	tracksCache  *trackscache.Cache
 
 	allowedToCreate map[string]bool
 
@@ -69,6 +71,10 @@ func (p *RequestProcessor) SetDebug(debug bool) {
 
 func (p *RequestProcessor) SetTasksCache(cache *taskscache.Cache) {
 	p.tasksCache = cache
+}
+
+func (p *RequestProcessor) SetTracksCache(cache *trackscache.Cache) {
+	p.tracksCache = cache
 }
 
 func (p *RequestProcessor) SetTweaksConfig(tweaksDBID, tracksDBID string) {
@@ -320,7 +326,10 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 		)
 	case "/tweak":
 		reply = fmt.Sprintf(
-			"%s\n\nUsage:\n/tweak demo|mix $track $edit [start [end]]\n[description]\nTime: 0:05 or 01:10",
+			"%s\n\nUsage:\n"+
+				"/tweak demo|mix $track $short_desc [start [end]]\n"+
+				"[description]\n"+
+				"Time: 0:05 or 01:10",
 			err.Error(),
 		)
 	}
@@ -487,7 +496,6 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 		req.End = parts[4]
 	}
 
-	// validated by precompiled regex in processor
 	if req.Start != "" && !regexp.MustCompile(`^\d*:\d\d$`).MatchString(req.Start) {
 		return nil, fmt.Errorf("invalid start time %s. Use like 0:05 or 01:10", req.Start)
 	}
@@ -508,22 +516,17 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		return "not implemented", nil
 	}
 
-	tracks, err := p.notion.LoadTracks(p.tracksDBID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load tracks: %w", err)
+	if p.tracksCache == nil {
+		return "", fmt.Errorf("tracks cache is not initialized")
 	}
 
-	allowed := map[string]bool{}
-	ordered := make([]string, 0, len(tracks))
-	for _, t := range tracks {
-		allowed[t] = true
-		ordered = append(ordered, t)
-	}
-
-	if !allowed[req.TrackName] {
+	// Check if track exists using cache
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
 		return fmt.Sprintf(
-			"Track \"%s\" does not exist. Choose from: %s",
-			req.TrackName, strings.Join(ordered, ", "),
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
 		), nil
 	}
 
@@ -539,6 +542,7 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		NotionDBID:       p.tweaksDBID,
 		Title:            req.EditName,
 		TrackName:        req.TrackName,
+		TrackPageID:      trackPageID,
 		Start:            req.Start,
 		End:              req.End,
 		Explanation:      req.Description,

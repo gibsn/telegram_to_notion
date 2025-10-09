@@ -9,6 +9,7 @@ import (
 	"github.com/gibsn/telegram_to_notion/internal/pinger"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
+	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -25,6 +26,7 @@ func main() {
 		pingChatID                        int64
 		pingText                          string
 		tasksCachePeriod                  time.Duration
+		tracksCachePeriod                 time.Duration
 	)
 
 	flag.BoolVar(&debug, "debug", false, "Enable debug mode")
@@ -44,6 +46,9 @@ func main() {
 	flag.DurationVar(
 		&tasksCachePeriod, "tasks_cache_period", 1*time.Minute, "Tasks cache refresh period",
 	)
+	flag.DurationVar(
+		&tracksCachePeriod, "tracks_cache_period", 1*time.Minute, "Tracks cache refresh period",
+	)
 	flag.Parse()
 
 	if botToken == "" || notionToken == "" || tasksDBID == "" || tweaksDBID == "" || tracksDBID == "" {
@@ -61,9 +66,11 @@ func main() {
 
 	notion := notion.NewNotion(notionToken)
 	cache := taskscache.NewTasksCache(notion, tasksDBID, tasksCachePeriod)
+	tracksCache := trackscache.NewTracksCache(notion, tracksDBID, tracksCachePeriod)
 
 	processor := requestprocessor.NewRequestProcessor(notion, tasksDBID, bot)
 	processor.SetTasksCache(cache)
+	processor.SetTracksCache(tracksCache)
 	processor.SetTweaksConfig(tweaksDBID, tracksDBID)
 
 	pinger, err := pinger.NewPinger(cache, bot, pingChatID)
@@ -85,11 +92,13 @@ func main() {
 		notion.SetDebug(debug)
 		processor.SetDebug(debug)
 		cache.SetDebug(debug)
+		tracksCache.SetDebug(debug)
 		pinger.SetDebug(debug)
 	}
 
 	go processor.ProcessRequests()
 	go cache.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
+	go tracksCache.RefreshPeriodically()
 	go pinger.PingPeriodically()
 
 	for {
