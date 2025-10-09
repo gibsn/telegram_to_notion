@@ -90,7 +90,6 @@ type CreateTweakDemoRequest struct {
 }
 
 func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
-	// Title property is always "Кратко"
 	r.TitleProperty = "Кратко"
 
 	payload := map[string]interface{}{
