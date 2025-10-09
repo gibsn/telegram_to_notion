@@ -21,12 +21,11 @@ jobs:
       run: make
 
     - name: Lint
-      uses: golangci/golangci-lint-action@v2
+      uses: golangci/golangci-lint-action@v6.5.2
       with:
         version: v1.64.8
         args: "-c ./build/ci/golangci.yml"
         only-new-issues: true
-        skip-go-installation: true
 
     - name: Test
       run: make test

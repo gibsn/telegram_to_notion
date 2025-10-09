@@ -9,27 +9,32 @@ import (
 	"github.com/gibsn/telegram_to_notion/internal/pinger"
 	"github.com/gibsn/telegram_to_notion/internal/requestprocessor"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
+	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
 	var (
-		debug                         bool
-		botToken                      string
-		notionToken, notionDBID       string
-		pingThreshold                 time.Duration
-		pingStartingTime, pingEndTime string
-		pingPeriod                    time.Duration
-		pingChatID                    int64
-		pingText                      string
-		tasksCachePeriod              time.Duration
+		debug                             bool
+		botToken                          string
+		notionToken                       string
+		tasksDBID, tweaksDBID, tracksDBID string
+		pingThreshold                     time.Duration
+		pingStartingTime, pingEndTime     string
+		pingPeriod                        time.Duration
+		pingChatID                        int64
+		pingText                          string
+		tasksCachePeriod                  time.Duration
+		tracksCachePeriod                 time.Duration
 	)
 
 	flag.BoolVar(&debug, "debug", false, "Enable debug mode")
 	flag.StringVar(&botToken, "telegram_token", "", "Telegram Bot Token")
 	flag.StringVar(&notionToken, "notion_token", "", "Notion Integration Token")
-	flag.StringVar(&notionDBID, "notion_db", "", "Notion Database ID")
+	flag.StringVar(&tasksDBID, "tasks_db", "", "Notion Tasks Database ID")
+	flag.StringVar(&tweaksDBID, "tweaks_db", "", "Notion Tweaks Database ID")
+	flag.StringVar(&tracksDBID, "tracks_db", "", "Notion Tracks Database ID")
 	flag.DurationVar(
 		&pingThreshold, "ping_threshold", 72*time.Hour, "Days till deadline when to start pinging",
 	)
@@ -41,10 +46,13 @@ func main() {
 	flag.DurationVar(
 		&tasksCachePeriod, "tasks_cache_period", 1*time.Minute, "Tasks cache refresh period",
 	)
+	flag.DurationVar(
+		&tracksCachePeriod, "tracks_cache_period", 1*time.Minute, "Tracks cache refresh period",
+	)
 	flag.Parse()
 
-	if botToken == "" || notionToken == "" || notionDBID == "" {
-		log.Fatal("All parameters (telegram_token, notion_token, notion_db) are required")
+	if botToken == "" || notionToken == "" || tasksDBID == "" || tweaksDBID == "" || tracksDBID == "" {
+		log.Fatal("Required: telegram_token, notion_token, tasks_db, tweaks_db, tracks_db")
 	}
 
 	log.Printf("Will connect to Telgram")
@@ -57,10 +65,13 @@ func main() {
 	log.Printf("Successfully connected to Telegram")
 
 	notion := notion.NewNotion(notionToken)
-	cache := taskscache.NewTasksCache(notion, notionDBID, tasksCachePeriod)
+	cache := taskscache.NewTasksCache(notion, tasksDBID, tasksCachePeriod)
+	tracksCache := trackscache.NewTracksCache(notion, tracksDBID, tracksCachePeriod)
 
-	processor := requestprocessor.NewRequestProcessor(notion, notionDBID, bot)
+	processor := requestprocessor.NewRequestProcessor(notion, tasksDBID, bot)
 	processor.SetTasksCache(cache)
+	processor.SetTracksCache(tracksCache)
+	processor.SetTweaksConfig(tweaksDBID, tracksDBID)
 
 	pinger, err := pinger.NewPinger(cache, bot, pingChatID)
 	if err != nil {
@@ -81,11 +92,13 @@ func main() {
 		notion.SetDebug(debug)
 		processor.SetDebug(debug)
 		cache.SetDebug(debug)
+		tracksCache.SetDebug(debug)
 		pinger.SetDebug(debug)
 	}
 
 	go processor.ProcessRequests()
 	go cache.RefreshPeriodically() // TODO should start pinger only after tasks have been loaded
+	go tracksCache.RefreshPeriodically()
 	go pinger.PingPeriodically()
 
 	for {

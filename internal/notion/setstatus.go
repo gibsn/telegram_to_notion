@@ -43,6 +43,7 @@ func (n *Notion) SetStatus(setRequest *SetStatusRequest) error {
 	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Notion-Version", "2022-06-28")
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := n.doWithRetries(req)
 	if err != nil {

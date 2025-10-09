@@ -413,3 +413,83 @@ func TestParseTasksCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTweakCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      *TweakRequest
+		expectErr bool
+	}{
+		{
+			name:  "demo minimal",
+			input: "/tweak demo Track1 EditA",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "EditA",
+			},
+		},
+		{
+			name:  "demo with start",
+			input: "/tweak demo Track1 EditA 1:23",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "EditA",
+				Start:     "1:23",
+			},
+		},
+		{
+			name:  "demo with start end and description",
+			input: "/tweak demo Track1 EditA 1:23 2:34\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "EditA",
+				Start:       "1:23",
+				End:         "2:34",
+				Description: "Some explanation",
+			},
+		},
+		{
+			name:      "invalid time",
+			input:     "/tweak demo Track1 EditA 1:2",
+			expectErr: true,
+		},
+		{
+			name:      "unknown mode",
+			input:     "/tweak something Track1 EditA",
+			expectErr: true,
+		},
+		{
+			name:      "too few args",
+			input:     "/tweak demo Track1",
+			expectErr: true,
+		},
+		{
+			name:      "empty body",
+			input:     "/tweak",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := extractCommand(tt.input)
+			got, err := parseTweakCommand(cmd)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want.Mode, got.Mode)
+				assert.Equal(t, tt.want.TrackName, got.TrackName)
+				assert.Equal(t, tt.want.EditName, got.EditName)
+				assert.Equal(t, tt.want.Start, got.Start)
+				assert.Equal(t, tt.want.End, got.End)
+				assert.Equal(t, tt.want.Description, got.Description)
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
+	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -26,12 +27,17 @@ type RequestProcessor struct {
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
 	tasksCache   *taskscache.Cache
+	tracksCache  *trackscache.Cache
 
 	allowedToCreate map[string]bool
 
 	taskLinkParser *regexp.Regexp
 
 	debug bool
+
+	tweaksDBID string
+	tracksDBID string
+	timeRe     *regexp.Regexp
 }
 
 func NewRequestProcessor(
@@ -44,6 +50,7 @@ func NewRequestProcessor(
 	}
 
 	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
+	p.timeRe = regexp.MustCompile(`^\d*:\d\d$`)
 
 	p.nameResolver = NewUserResolver()
 	p.allowedToCreate = map[string]bool{
@@ -64,6 +71,15 @@ func (p *RequestProcessor) SetDebug(debug bool) {
 
 func (p *RequestProcessor) SetTasksCache(cache *taskscache.Cache) {
 	p.tasksCache = cache
+}
+
+func (p *RequestProcessor) SetTracksCache(cache *trackscache.Cache) {
+	p.tracksCache = cache
+}
+
+func (p *RequestProcessor) SetTweaksConfig(tweaksDBID, tracksDBID string) {
+	p.tweaksDBID = tweaksDBID
+	p.tracksDBID = tracksDBID
 }
 
 type commandCommon struct {
@@ -267,6 +283,8 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 		reply, err = withErrorReply(message, p.processDone)
 	case "/tasks":
 		reply, err = withErrorReply(message, p.processTasks)
+	case "/tweak":
+		reply, err = withErrorReply(message, p.processTweak)
 	default:
 		err = errUnknownCommand
 		reply = "🖕🖕🖕"
@@ -304,6 +322,14 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/tasks":
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n/tasks",
+			err.Error(),
+		)
+	case "/tweak":
+		reply = fmt.Sprintf(
+			"%s\n\nUsage:\n"+
+				"/tweak demo|mix $track $short_desc [start [end]]\n"+
+				"[description]\n"+
+				"Time: 0:05 or 01:10",
 			err.Error(),
 		)
 	}
@@ -419,4 +445,117 @@ func (p *RequestProcessor) processTasks(message commandCommon) (string, error) {
 	}
 
 	return reply.String(), nil
+}
+
+type tweakMode string
+
+const (
+	tweakModeDemo tweakMode = "demo"
+	tweakModeMix  tweakMode = "mix"
+)
+
+type TweakRequest struct {
+	Mode        tweakMode
+	TrackName   string
+	EditName    string
+	Start       string
+	End         string
+	Description string
+}
+
+func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
+	if strings.TrimSpace(message.restOfMessage) == "" {
+		return nil, fmt.Errorf("body is empty")
+	}
+
+	lines := strings.SplitN(message.restOfMessage, "\n", 2)
+	header := strings.TrimSpace(lines[0])
+	var description string
+	if len(lines) == 2 {
+		description = strings.TrimSpace(lines[1])
+	}
+
+	parts := strings.Fields(header)
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid body")
+	}
+
+	mode := tweakMode(strings.ToLower(parts[0]))
+	if mode != tweakModeDemo && mode != tweakModeMix {
+		return nil, fmt.Errorf("unknown mode %s", parts[0])
+	}
+
+	req := &TweakRequest{Mode: mode, Description: description}
+	req.TrackName = parts[1]
+	req.EditName = parts[2]
+
+	if len(parts) >= 4 {
+		req.Start = parts[3]
+	}
+	if len(parts) >= 5 {
+		req.End = parts[4]
+	}
+
+	if req.Start != "" && !regexp.MustCompile(`^\d*:\d\d$`).MatchString(req.Start) {
+		return nil, fmt.Errorf("invalid start time %s. Use like 0:05 or 01:10", req.Start)
+	}
+	if req.End != "" && !regexp.MustCompile(`^\d*:\d\d$`).MatchString(req.End) {
+		return nil, fmt.Errorf("invalid end time %s. Use like 0:05 or 01:10", req.End)
+	}
+
+	return req, nil
+}
+
+func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
+	req, err := parseTweakCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if req.Mode == tweakModeMix {
+		return "not implemented", nil
+	}
+
+	if p.tracksCache == nil {
+		return "", fmt.Errorf("tracks cache is not initialized")
+	}
+
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
+		return fmt.Sprintf(
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
+		), nil
+	}
+
+	authorID := p.nameResolver.TgToNotion("@" + message.fromUserName)
+	if authorID == "" {
+		log.Printf(
+			"warning: could not resolve telegram username @%s to Notion user id",
+			message.fromUserName,
+		)
+	}
+
+	r := &notion.CreateTweakDemoRequest{
+		NotionDBID:       p.tweaksDBID,
+		Title:            req.EditName,
+		TrackName:        req.TrackName,
+		TrackPageID:      trackPageID,
+		Start:            req.Start,
+		End:              req.End,
+		Explanation:      req.Description,
+		AuthorNotionUser: authorID,
+	}
+
+	if p.debug {
+		r.Debug = true
+	}
+
+	url, err := p.notion.CreateTweakDemo(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to create tweak: %w", err)
+	}
+
+	return "Tweak has been created:\n" + url, nil
 }
