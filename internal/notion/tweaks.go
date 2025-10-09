@@ -108,7 +108,15 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 			},
 		},
 	}
-	// Set relation to track page if provided (required by schema)
+
+	if r.Explanation != "" {
+		payload["properties"].(map[string]interface{})["Пояснение"] = map[string]interface{}{
+			"rich_text": []map[string]interface{}{
+				{"text": map[string]string{"content": r.Explanation}},
+			},
+		}
+	}
+
 	if r.TrackPageID != "" {
 		payload["properties"].(map[string]interface{})["Песня"] = map[string]interface{}{
 			"relation": []map[string]string{{"id": r.TrackPageID}},
@@ -139,14 +147,6 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 					"object": "user",
 					"id":     r.AuthorNotionUser,
 				},
-			},
-		}
-	}
-
-	if r.Explanation != "" {
-		props["Пояснение"] = map[string]interface{}{
-			"rich_text": []map[string]interface{}{
-				{"text": map[string]string{"content": r.Explanation}},
 			},
 		}
 	}

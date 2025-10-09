@@ -116,6 +116,7 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 
 	req.Header.Set("Authorization", "Bearer "+n.token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
 	resp, err := n.doWithRetries(req)
