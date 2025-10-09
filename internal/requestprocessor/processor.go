@@ -520,7 +520,6 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		return "", fmt.Errorf("tracks cache is not initialized")
 	}
 
-	// Check if track exists using cache
 	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
 	if !exists {
 		trackNames := p.tracksCache.GetTrackNames()
