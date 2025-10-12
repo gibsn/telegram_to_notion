@@ -349,7 +349,7 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n"+
 				"/tweak demo|mix $track $edit_name\n"+
-				"[start_time [end_time]] OR [description]\n"+
+				"[start_time [end_time]]\n"+
 				"[description] (if times specified)\n"+
 				"Time format: 0:05 or 01:10",
 			err.Error(),
