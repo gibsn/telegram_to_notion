@@ -3,6 +3,7 @@ package trackscache
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,8 +68,22 @@ func (c *Cache) GetTracks() map[string]string {
 func (c *Cache) GetTrackID(trackName string) (string, bool) {
 	c.cacheLock.RLock()
 	defer c.cacheLock.RUnlock()
+
+	// First try exact match
 	trackID, exists := c.cache[trackName]
-	return trackID, exists
+	if exists {
+		return trackID, true
+	}
+
+	// if exact match fails, try case-insensitive search
+	lowerTrackName := strings.ToLower(trackName)
+	for name, id := range c.cache {
+		if strings.ToLower(name) == lowerTrackName {
+			return id, true
+		}
+	}
+
+	return "", false
 }
 
 func (c *Cache) GetTrackNames() []string {

@@ -83,12 +83,14 @@ func (p *RequestProcessor) SetTweaksConfig(tweaksDBID, tracksDBID string) {
 }
 
 type commandCommon struct {
-	command           string
-	restOfMessage     string
-	repliedToText     string
-	repliedToEntities []tgbotapi.MessageEntity
-	fromUserName      string
-	isPrivate         bool
+	command            string
+	restOfMessage      string
+	repliedToText      string
+	repliedToEntities  []tgbotapi.MessageEntity
+	fromUserName       string
+	isPrivate          bool
+	chatID             int64
+	repliedToMessageID int
 }
 
 func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Update) (
@@ -105,11 +107,30 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 	if update.Message.ReplyToMessage != nil {
 		command.repliedToText = update.Message.ReplyToMessage.Text
 		command.repliedToEntities = update.Message.ReplyToMessage.Entities
+		command.repliedToMessageID = update.Message.ReplyToMessage.MessageID
 	}
 	command.isPrivate = update.Message.Chat.IsPrivate()
 	command.fromUserName = fromUserName
+	command.chatID = update.Message.Chat.ID
 
 	return command, nil
+}
+
+func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPrivate bool) string {
+	if messageID == 0 {
+		return ""
+	}
+
+	if isPrivate {
+		// For private chats, we need the username, but we don't have it in the current context
+		// For now, we'll use a generic format that might not work perfectly
+		return fmt.Sprintf("https://t.me/c/%d/%d", chatID, messageID)
+	}
+
+	// For group chats, use the format: https://t.me/c/{chat_id}/{message_id}
+	// Note: chat_id for groups is negative, so we need to remove the negative sign
+	groupChatID := -chatID
+	return fmt.Sprintf("https://t.me/c/%d/%d", groupChatID, messageID)
 }
 
 func extractCommand(text string) commandCommon {
@@ -327,9 +348,10 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/tweak":
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n"+
-				"/tweak demo|mix $track $short_desc [start [end]]\n"+
-				"[description]\n"+
-				"Time: 0:05 or 01:10",
+				"/tweak demo|mix $track $edit_name\n"+
+				"[start_time [end_time]] OR [description]\n"+
+				"[description] (if times specified)\n"+
+				"Time format: 0:05 or 01:10",
 			err.Error(),
 		)
 	}
@@ -468,13 +490,10 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 		return nil, fmt.Errorf("body is empty")
 	}
 
-	lines := strings.SplitN(message.restOfMessage, "\n", 2)
+	lines := strings.SplitN(message.restOfMessage, "\n", 3)
 	header := strings.TrimSpace(lines[0])
-	var description string
-	if len(lines) == 2 {
-		description = strings.TrimSpace(lines[1])
-	}
 
+	// Parse the header: mode track_name edit_name
 	parts := strings.Fields(header)
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid body")
@@ -485,21 +504,48 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 		return nil, fmt.Errorf("unknown mode %s", parts[0])
 	}
 
-	req := &TweakRequest{Mode: mode, Description: description}
+	req := &TweakRequest{Mode: mode}
 	req.TrackName = parts[1]
-	req.EditName = parts[2]
 
-	if len(parts) >= 4 {
-		req.Start = parts[3]
-	}
-	if len(parts) >= 5 {
-		req.End = parts[4]
+	// Everything after track name is the edit name
+	editNameParts := parts[2:]
+	req.EditName = strings.Join(editNameParts, " ")
+
+	// Check second line for time patterns or description
+	if len(lines) >= 2 {
+		secondLine := strings.TrimSpace(lines[1])
+
+		// Check if second line contains time patterns
+		timePattern := regexp.MustCompile(`^(\d{1,2}:\d{2})(?:\s+(\d{1,2}:\d{2}))?$`)
+		matches := timePattern.FindStringSubmatch(secondLine)
+
+		if len(matches) >= 2 {
+			// Second line contains time(s)
+			req.Start = matches[1]
+			if len(matches) >= 3 && matches[2] != "" {
+				req.End = matches[2]
+			}
+
+			// Check for description on third line
+			if len(lines) >= 3 {
+				req.Description = strings.TrimSpace(lines[2])
+			}
+		} else {
+			// Second line is description
+			req.Description = secondLine
+
+			// Check for description on third line (should not happen, but handle gracefully)
+			if len(lines) >= 3 {
+				req.Description += "\n" + strings.TrimSpace(lines[2])
+			}
+		}
 	}
 
-	if req.Start != "" && !regexp.MustCompile(`^\d*:\d\d$`).MatchString(req.Start) {
+	// Validate time formats
+	if req.Start != "" && !regexp.MustCompile(`^\d{1,2}:\d{2}$`).MatchString(req.Start) {
 		return nil, fmt.Errorf("invalid start time %s. Use like 0:05 or 01:10", req.Start)
 	}
-	if req.End != "" && !regexp.MustCompile(`^\d*:\d\d$`).MatchString(req.End) {
+	if req.End != "" && !regexp.MustCompile(`^\d{1,2}:\d{2}$`).MatchString(req.End) {
 		return nil, fmt.Errorf("invalid end time %s. Use like 0:05 or 01:10", req.End)
 	}
 
@@ -537,6 +583,23 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		)
 	}
 
+	// Build explanation field with original description and replied message info
+	explanation := req.Description
+	if message.repliedToText != "" {
+		messageLink := p.createMessageLink(
+			message.chatID, message.repliedToMessageID, message.isPrivate,
+		)
+
+		if explanation != "" {
+			explanation += "\n\n"
+		}
+		explanation += "Ответ на сообщение: " + message.repliedToText
+
+		if messageLink != "" {
+			explanation += "\nСсылка на сообщение: " + messageLink
+		}
+	}
+
 	r := &notion.CreateTweakDemoRequest{
 		NotionDBID:       p.tweaksDBID,
 		Title:            req.EditName,
@@ -544,7 +607,7 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		TrackPageID:      trackPageID,
 		Start:            req.Start,
 		End:              req.End,
-		Explanation:      req.Description,
+		Explanation:      explanation,
 		AuthorNotionUser: authorID,
 	}
 
