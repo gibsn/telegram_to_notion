@@ -31,7 +31,9 @@ type RequestProcessor struct {
 
 	allowedToCreate map[string]bool
 
-	taskLinkParser *regexp.Regexp
+	taskLinkParser   *regexp.Regexp
+	timePatternRe    *regexp.Regexp
+	timeValidationRe *regexp.Regexp
 
 	debug bool
 
@@ -51,6 +53,8 @@ func NewRequestProcessor(
 
 	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
 	p.timeRe = regexp.MustCompile(`^\d*:\d\d$`)
+	p.timePatternRe = regexp.MustCompile(`^(\d{1,2}:\d{2})(?:\s+(\d{1,2}:\d{2}))?$`)
+	p.timeValidationRe = regexp.MustCompile(`^\d{1,2}:\d{2}$`)
 
 	p.nameResolver = NewUserResolver()
 	p.allowedToCreate = map[string]bool{
@@ -485,7 +489,7 @@ type TweakRequest struct {
 	Description string
 }
 
-func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
+func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	if strings.TrimSpace(message.restOfMessage) == "" {
 		return nil, fmt.Errorf("body is empty")
 	}
@@ -516,8 +520,7 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 		secondLine := strings.TrimSpace(lines[1])
 
 		// Check if second line contains time patterns
-		timePattern := regexp.MustCompile(`^(\d{1,2}:\d{2})(?:\s+(\d{1,2}:\d{2}))?$`)
-		matches := timePattern.FindStringSubmatch(secondLine)
+		matches := p.timePatternRe.FindStringSubmatch(secondLine)
 
 		if len(matches) >= 2 {
 			// Second line contains time(s)
@@ -542,10 +545,10 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	}
 
 	// Validate time formats
-	if req.Start != "" && !regexp.MustCompile(`^\d{1,2}:\d{2}$`).MatchString(req.Start) {
+	if req.Start != "" && !p.timeValidationRe.MatchString(req.Start) {
 		return nil, fmt.Errorf("invalid start time %s. Use like 0:05 or 01:10", req.Start)
 	}
-	if req.End != "" && !regexp.MustCompile(`^\d{1,2}:\d{2}$`).MatchString(req.End) {
+	if req.End != "" && !p.timeValidationRe.MatchString(req.End) {
 		return nil, fmt.Errorf("invalid end time %s. Use like 0:05 or 01:10", req.End)
 	}
 
@@ -553,7 +556,7 @@ func parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 }
 
 func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
-	req, err := parseTweakCommand(message)
+	req, err := p.parseTweakCommand(message)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
 	}

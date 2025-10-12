@@ -485,6 +485,58 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
+			name:  "demo with multi-word edit name",
+			input: "/tweak demo Track1 My Awesome Edit",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name and start time",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+				Start:     "1:23",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name, start and end",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+				Start:     "1:23",
+				End:       "2:34",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name and description",
+			input: "/tweak demo Track1 My Awesome Edit\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "My Awesome Edit",
+				Description: "Some explanation",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name, times and description",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "My Awesome Edit",
+				Start:       "1:23",
+				End:         "2:34",
+				Description: "Some explanation",
+			},
+		},
+		{
 			name:      "unknown mode",
 			input:     "/tweak something Track1 EditA",
 			expectErr: true,
@@ -504,7 +556,8 @@ func TestParseTweakCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := extractCommand(tt.input)
-			got, err := parseTweakCommand(cmd)
+			processor := NewRequestProcessor(nil, "", nil)
+			got, err := processor.parseTweakCommand(cmd)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -558,87 +611,6 @@ func TestCreateMessageLink(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.createMessageLink(tt.chatID, tt.messageID, tt.isPrivate)
 			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestParseTweakCommandMultiWordEditName(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		want      *TweakRequest
-		expectErr bool
-	}{
-		{
-			name:  "demo with multi-word edit name",
-			input: "/tweak demo Track1 My Awesome Edit",
-			want: &TweakRequest{
-				Mode:      tweakModeDemo,
-				TrackName: "Track1",
-				EditName:  "My Awesome Edit",
-			},
-		},
-		{
-			name:  "demo with multi-word edit name and start time",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23",
-			want: &TweakRequest{
-				Mode:      tweakModeDemo,
-				TrackName: "Track1",
-				EditName:  "My Awesome Edit",
-				Start:     "1:23",
-			},
-		},
-		{
-			name:  "demo with multi-word edit name, start and end",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34",
-			want: &TweakRequest{
-				Mode:      tweakModeDemo,
-				TrackName: "Track1",
-				EditName:  "My Awesome Edit",
-				Start:     "1:23",
-				End:       "2:34",
-			},
-		},
-		{
-			name:  "demo with multi-word edit name and description",
-			input: "/tweak demo Track1 My Awesome Edit\nSome explanation",
-			want: &TweakRequest{
-				Mode:        tweakModeDemo,
-				TrackName:   "Track1",
-				EditName:    "My Awesome Edit",
-				Description: "Some explanation",
-			},
-		},
-		{
-			name:  "demo with multi-word edit name, times and description",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34\nSome explanation",
-			want: &TweakRequest{
-				Mode:        tweakModeDemo,
-				TrackName:   "Track1",
-				EditName:    "My Awesome Edit",
-				Start:       "1:23",
-				End:         "2:34",
-				Description: "Some explanation",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := extractCommand(tt.input)
-			got, err := parseTweakCommand(cmd)
-
-			if tt.expectErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want.Mode, got.Mode)
-				assert.Equal(t, tt.want.TrackName, got.TrackName)
-				assert.Equal(t, tt.want.EditName, got.EditName)
-				assert.Equal(t, tt.want.Start, got.Start)
-				assert.Equal(t, tt.want.End, got.End)
-				assert.Equal(t, tt.want.Description, got.Description)
-			}
 		})
 	}
 }
