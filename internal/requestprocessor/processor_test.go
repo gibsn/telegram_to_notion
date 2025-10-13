@@ -10,6 +10,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func makeBotCommandEntities(text string) []tgbotapi.MessageEntity {
+	// create a single bot_command entity for the first token that starts at offset 0
+	end := len(text)
+	for i, ch := range text {
+		if ch == ' ' || ch == '\n' || ch == '\t' {
+			end = i
+			break
+		}
+	}
+	if end == 0 || text[0] != '/' {
+		return nil
+	}
+	return []tgbotapi.MessageEntity{{
+		Type:   "bot_command",
+		Offset: 0,
+		Length: end,
+	}}
+}
+
 func TestParseTaskCommand(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -78,14 +97,6 @@ test_description`,
 			},
 		},
 		{
-			name: "error: no /task",
-			input: `test_task
-@gibsn
-test_description`,
-			isPrivate: false,
-			expectErr: true,
-		},
-		{
 			name:      "error: no task name",
 			input:     `/task  `,
 			expectErr: true,
@@ -138,7 +149,9 @@ test_description`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			command := extractCommand(tt.input)
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+			command := cmd
 			command.isPrivate = tt.isPrivate
 			command.fromUserName = tt.fromUserName
 
@@ -243,7 +256,9 @@ func TestParseSetDeadlineCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			command := extractCommand(tt.input)
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+			command := cmd
 			command.repliedToText = tt.repliedToText
 			command.repliedToEntities = tt.repliedToEntities
 
@@ -344,7 +359,9 @@ func TestParseDoneCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			command := extractCommand(tt.input)
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+			command := cmd
 			command.repliedToText = tt.repliedToText
 			command.repliedToEntities = tt.repliedToEntities
 
@@ -555,7 +572,8 @@ func TestParseTweakCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := extractCommand(tt.input)
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
 			processor := NewRequestProcessor(nil, "", nil)
 			got, err := processor.parseTweakCommand(cmd)
 
@@ -618,6 +636,31 @@ func TestCreateMessageLink(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.createMessageLink(tt.chatID, tt.messageID, tt.isPrivate)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractCommand_TaskWithAndWithoutMention(t *testing.T) {
+	cases := []struct {
+		name      string
+		text      string
+		rest      string
+		expectErr bool
+	}{
+		{"without_mention", "/task do something", "do something", false},
+		{"with_mention", "/task@bot_name do something", "do something", false},
+		{"error: no /task", "test_task\n@gibsn", "do something", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cmd, err := extractCommand(c.text, makeBotCommandEntities(c.text))
+			if c.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, "/task", cmd.command)
+				assert.Equal(t, c.rest, cmd.restOfMessage)
+			}
 		})
 	}
 }
