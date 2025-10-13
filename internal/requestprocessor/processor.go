@@ -18,6 +18,7 @@ import (
 var (
 	errInvalidCommand = errors.New("invalid command")
 	errUnknownCommand = errors.New("unknown command")
+	errNotACommand    = errors.New("not a command")
 )
 
 type RequestProcessor struct {
@@ -102,20 +103,44 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 ) {
 	fromUserName := strings.ToLower(update.Message.From.UserName)
 
+	if p.debug {
+		log.Printf(
+			"parseAndValidateTelegramRequest: fromUserName=%s, allowed=%v",
+			fromUserName, p.allowedToCreate[fromUserName],
+		)
+	}
+
 	if !p.allowedToCreate[fromUserName] {
 		return commandCommon{}, fmt.Errorf("user %s is not allowed to send commands", fromUserName)
 	}
 
-	command := extractCommand(update.Message.Text)
+	command, cmdErr := extractCommand(update.Message.Text, update.Message.Entities)
+	if cmdErr != nil {
+		return commandCommon{}, cmdErr
+	}
 
 	if update.Message.ReplyToMessage != nil {
 		command.repliedToText = update.Message.ReplyToMessage.Text
 		command.repliedToEntities = update.Message.ReplyToMessage.Entities
 		command.repliedToMessageID = update.Message.ReplyToMessage.MessageID
+
+		if p.debug {
+			log.Printf(
+				"Reply detected: repliedToText=%s, repliedToMessageID=%d",
+				command.repliedToText, command.repliedToMessageID,
+			)
+		}
 	}
 	command.isPrivate = update.Message.Chat.IsPrivate()
 	command.fromUserName = fromUserName
 	command.chatID = update.Message.Chat.ID
+
+	if p.debug {
+		log.Printf(
+			"Parsed command: command=%s, isPrivate=%v, chatID=%d",
+			command.command, command.isPrivate, command.chatID,
+		)
+	}
 
 	return command, nil
 }
@@ -157,19 +182,20 @@ func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPriv
 	return link
 }
 
-func extractCommand(text string) commandCommon {
-	firstLine := strings.SplitN(text, "\n", 2)[0]
-	command := strings.SplitN(firstLine, " ", 2)[0]
-
-	var restOfMessage string
-	if commandAndRest := strings.SplitN(text, " ", 2); len(commandAndRest) > 1 {
-		restOfMessage = commandAndRest[1]
+func extractCommand(text string, entities []tgbotapi.MessageEntity) (commandCommon, error) {
+	// Only treat message as command if the first entity is a bot_command at offset 0
+	if len(entities) == 0 || entities[0].Type != "bot_command" || entities[0].Offset != 0 {
+		return commandCommon{}, errNotACommand
 	}
-
-	return commandCommon{
-		command:       command,
-		restOfMessage: restOfMessage,
+	cmdEntity := entities[0]
+	first := text[cmdEntity.Offset : cmdEntity.Offset+cmdEntity.Length]
+	// Strip optional @BotName suffix
+	if at := strings.Index(first, "@"); at != -1 {
+		first = first[:at]
 	}
+	// Rest of message is everything after the command token
+	rest := strings.TrimSpace(text[cmdEntity.Offset+cmdEntity.Length:])
+	return commandCommon{command: first, restOfMessage: rest}, nil
 }
 
 func parseTaskCommand(message commandCommon) (
@@ -297,13 +323,28 @@ func (p *RequestProcessor) ProcessRequests() {
 			continue
 		}
 
+		if p.debug {
+			log.Printf("Received message: ChatID=%d, MessageID=%d, From=%s, Text=%s",
+				update.Message.Chat.ID,
+				update.Message.MessageID,
+				update.Message.From.UserName,
+				update.Message.Text,
+			)
+		}
+
 		reply, err := p.processRequest(update)
 		if err != nil {
+			if errors.Is(err, errNotACommand) {
+				// Ignore non-commands silently
+				continue
+			}
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
 		msg.ParseMode = "HTML"
+		// Reply to the command (and into the same forum topic/thread if present)
+		msg.ReplyToMessageID = update.Message.MessageID
 
 		if _, err := p.bot.Send(msg); err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
@@ -374,7 +415,7 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 			"%s\n\nUsage:\n"+
 				"/tweak demo|mix $track $edit_name\n"+
 				"[start_time [end_time]]\n"+
-				"[description] (if times specified)\n"+
+				"[description]\n"+
 				"Time format: 0:05 or 01:10",
 			err.Error(),
 		)
