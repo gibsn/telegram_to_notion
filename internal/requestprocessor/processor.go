@@ -144,7 +144,7 @@ func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPriv
 	groupChatID := -chatID
 	// Remove the leading "100" from supergroup IDs (ID >= 1000000000000)
 	if groupChatID >= 1000000000000 {
-		groupChatID = groupChatID - 1000000000000
+		groupChatID -= 1000000000000
 	}
 
 	link := fmt.Sprintf("https://t.me/c/%d/%d", groupChatID, messageID)
