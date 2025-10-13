@@ -399,6 +399,7 @@ func TestParseTasksCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			command := commandCommon{
 				fromUserName: tt.fromUserName,
+				chatID:       -123456789, // Mock chat ID
 			}
 
 			processor := NewRequestProcessor(nil, "", nil)
@@ -431,8 +432,8 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
-			name:  "demo with start",
-			input: "/tweak demo Track1 EditA 1:23",
+			name:  "demo with start time on second line",
+			input: "/tweak demo Track1 EditA\n1:23",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -441,8 +442,19 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
-			name:  "demo with start end and description",
-			input: "/tweak demo Track1 EditA 1:23 2:34\nSome explanation",
+			name:  "demo with start and end time on second line",
+			input: "/tweak demo Track1 EditA\n1:23 2:34",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "EditA",
+				Start:     "1:23",
+				End:       "2:34",
+			},
+		},
+		{
+			name:  "demo with start, end and description",
+			input: "/tweak demo Track1 EditA\n1:23 2:34\nSome explanation",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -453,9 +465,76 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
-			name:      "invalid time",
-			input:     "/tweak demo Track1 EditA 1:2",
-			expectErr: true,
+			name:  "demo with description on second line",
+			input: "/tweak demo Track1 EditA\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "EditA",
+				Description: "Some explanation",
+			},
+		},
+		{
+			name:  "invalid time format treated as description",
+			input: "/tweak demo Track1 EditA\n1:2",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "EditA",
+				Description: "1:2",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name",
+			input: "/tweak demo Track1 My Awesome Edit",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name and start time",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+				Start:     "1:23",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name, start and end",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track1",
+				EditName:  "My Awesome Edit",
+				Start:     "1:23",
+				End:       "2:34",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name and description",
+			input: "/tweak demo Track1 My Awesome Edit\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "My Awesome Edit",
+				Description: "Some explanation",
+			},
+		},
+		{
+			name:  "demo with multi-word edit name, times and description",
+			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34\nSome explanation",
+			want: &TweakRequest{
+				Mode:        tweakModeDemo,
+				TrackName:   "Track1",
+				EditName:    "My Awesome Edit",
+				Start:       "1:23",
+				End:         "2:34",
+				Description: "Some explanation",
+			},
 		},
 		{
 			name:      "unknown mode",
@@ -477,7 +556,8 @@ func TestParseTweakCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := extractCommand(tt.input)
-			got, err := parseTweakCommand(cmd)
+			processor := NewRequestProcessor(nil, "", nil)
+			got, err := processor.parseTweakCommand(cmd)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -490,6 +570,54 @@ func TestParseTweakCommand(t *testing.T) {
 				assert.Equal(t, tt.want.End, got.End)
 				assert.Equal(t, tt.want.Description, got.Description)
 			}
+		})
+	}
+}
+
+func TestCreateMessageLink(t *testing.T) {
+	processor := NewRequestProcessor(nil, "", nil)
+
+	tests := []struct {
+		name      string
+		chatID    int64
+		messageID int
+		isPrivate bool
+		expected  string
+	}{
+		{
+			name:      "group chat link",
+			chatID:    -1001234567890,
+			messageID: 123,
+			isPrivate: false,
+			expected:  "https://t.me/c/1234567890/123",
+		},
+		{
+			name:      "private chat link",
+			chatID:    123456789,
+			messageID: 456,
+			isPrivate: true,
+			expected:  "",
+		},
+		{
+			name:      "zero message ID",
+			chatID:    -1001234567890,
+			messageID: 0,
+			isPrivate: false,
+			expected:  "",
+		},
+		{
+			name:      "regular group chat link (without 100 prefix)",
+			chatID:    -4910620546,
+			messageID: 274,
+			isPrivate: false,
+			expected:  "https://t.me/c/4910620546/274",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := processor.createMessageLink(tt.chatID, tt.messageID, tt.isPrivate)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
