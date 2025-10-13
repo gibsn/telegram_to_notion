@@ -550,12 +550,13 @@ type TweakRequest struct {
 	Description string
 }
 
+// nolint: gocyclo
 func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	if strings.TrimSpace(message.restOfMessage) == "" {
 		return nil, fmt.Errorf("body is empty")
 	}
 
-	lines := strings.SplitN(message.restOfMessage, "\n", -1)
+	lines := strings.Split(message.restOfMessage, "\n")
 	header := strings.TrimSpace(lines[0])
 
 	parts := strings.Fields(header)
