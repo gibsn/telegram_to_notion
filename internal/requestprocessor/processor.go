@@ -122,19 +122,39 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 
 func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPrivate bool) string {
 	if messageID == 0 {
+		if p.debug {
+			log.Printf("createMessageLink: messageID is 0, returning empty string")
+		}
 		return ""
 	}
 
 	if isPrivate {
-		// For private chats, we need the username, but we don't have it in the current context
-		// For now, we'll use a generic format that might not work perfectly
-		return fmt.Sprintf("https://t.me/c/%d/%d", chatID, messageID)
+		// For private chats, we can't create direct message links without username
+		// Return empty string as private message links require username or special handling
+		if p.debug {
+			log.Printf("createMessageLink: private chat, returning empty string")
+		}
+		return ""
 	}
 
-	// For group chats, use the format: https://t.me/c/{chat_id}/{message_id}
-	// Note: chat_id for groups is negative, so we need to remove the negative sign
+	// For group chats, use the format: https://t.me/c/{chat_id_without_negative_sign}/{message_id}
+	// Note: chat_id for groups is negative, we need to remove the negative sign
+	// For supergroups with ID like -1001234567890, remove the "100" prefix
+	// For regular groups with ID like -4910620546, just remove the negative sign
 	groupChatID := -chatID
-	return fmt.Sprintf("https://t.me/c/%d/%d", groupChatID, messageID)
+	// Remove the leading "100" from supergroup IDs (ID >= 1000000000000)
+	if groupChatID >= 1000000000000 {
+		groupChatID = groupChatID - 1000000000000
+	}
+
+	link := fmt.Sprintf("https://t.me/c/%d/%d", groupChatID, messageID)
+
+	if p.debug {
+		log.Printf("createMessageLink: chatID=%d, messageID=%d, isPrivate=%v, groupChatID=%d, link=%s",
+			chatID, messageID, isPrivate, groupChatID, link)
+	}
+
+	return link
 }
 
 func extractCommand(text string) commandCommon {

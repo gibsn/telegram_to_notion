@@ -589,14 +589,14 @@ func TestCreateMessageLink(t *testing.T) {
 			chatID:    -1001234567890,
 			messageID: 123,
 			isPrivate: false,
-			expected:  "https://t.me/c/1001234567890/123",
+			expected:  "https://t.me/c/1234567890/123",
 		},
 		{
 			name:      "private chat link",
 			chatID:    123456789,
 			messageID: 456,
 			isPrivate: true,
-			expected:  "https://t.me/c/123456789/456",
+			expected:  "",
 		},
 		{
 			name:      "zero message ID",
@@ -604,6 +604,13 @@ func TestCreateMessageLink(t *testing.T) {
 			messageID: 0,
 			isPrivate: false,
 			expected:  "",
+		},
+		{
+			name:      "regular group chat link (without 100 prefix)",
+			chatID:    -4910620546,
+			messageID: 274,
+			isPrivate: false,
+			expected:  "https://t.me/c/4910620546/274",
 		},
 	}
 
