@@ -54,7 +54,7 @@ func NewRequestProcessor(
 
 	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
 	p.timeRe = regexp.MustCompile(`^\d*:\d\d$`)
-	p.timePatternRe = regexp.MustCompile(`^(\d{1,2}:\d{2})(?:\s+(\d{1,2}:\d{2}))?$`)
+	p.timePatternRe = regexp.MustCompile(`^\s*(\d{1,2}:\d{2})(?:\s+(\d{1,2}:\d{2}))?\s*$`)
 	p.timeValidationRe = regexp.MustCompile(`^\d{1,2}:\d{2}$`)
 
 	p.nameResolver = NewUserResolver()
@@ -413,10 +413,10 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/tweak":
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n"+
-				"/tweak demo|mix $track $edit_name\n"+
-				"[start_time [end_time]]\n"+
-				"[description]\n"+
-				"Time format: 0:05 or 01:10",
+				"/tweak demo|mix $track\n"+
+				"$edit_name\n"+
+				"[start_time [end_time]] (time format as 0:05 or 01:10)\n"+
+				"[description]\n",
 			err.Error(),
 		)
 	}
@@ -550,17 +550,17 @@ type TweakRequest struct {
 	Description string
 }
 
+// nolint: gocyclo
 func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	if strings.TrimSpace(message.restOfMessage) == "" {
 		return nil, fmt.Errorf("body is empty")
 	}
 
-	lines := strings.SplitN(message.restOfMessage, "\n", 3)
+	lines := strings.Split(message.restOfMessage, "\n")
 	header := strings.TrimSpace(lines[0])
 
-	// Parse the header: mode track_name edit_name
 	parts := strings.Fields(header)
-	if len(parts) < 3 {
+	if len(parts) < 2 {
 		return nil, fmt.Errorf("invalid body")
 	}
 
@@ -569,39 +569,40 @@ func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakReque
 		return nil, fmt.Errorf("unknown mode %s", parts[0])
 	}
 
-	req := &TweakRequest{Mode: mode}
-	req.TrackName = parts[1]
+	// Initialize request and set mode/track
+	req := &TweakRequest{}
+	req.Mode = mode
+	if len(parts) >= 2 {
+		req.TrackName = strings.Join(parts[1:], " ")
+	}
 
-	// Everything after track name is the edit name
-	editNameParts := parts[2:]
-	req.EditName = strings.Join(editNameParts, " ")
+	// Second line must contain the edit name (can be multi-word)
+	if len(lines) < 2 || strings.TrimSpace(lines[1]) == "" {
+		return nil, fmt.Errorf("edit name is empty")
+	}
+	req.EditName = strings.TrimSpace(lines[1])
 
-	// Check second line for time patterns or description
-	if len(lines) >= 2 {
-		secondLine := strings.TrimSpace(lines[1])
+	// Check third line for time patterns or description
+	if len(lines) >= 3 {
+		thirdLine := strings.TrimSpace(lines[2])
 
-		// Check if second line contains time patterns
-		matches := p.timePatternRe.FindStringSubmatch(secondLine)
+		// Check if third line contains time patterns
+		matches := p.timePatternRe.FindStringSubmatch(thirdLine)
 
 		if len(matches) >= 2 {
-			// Second line contains time(s)
+			// Third line contains time(s)
 			req.Start = matches[1]
 			if len(matches) >= 3 && matches[2] != "" {
+				log.Printf("'%v','%v','%v'", matches[0], matches[1], matches[2])
 				req.End = matches[2]
 			}
 
 			// Check for description on third line
-			if len(lines) >= 3 {
-				req.Description = strings.TrimSpace(lines[2])
+			if len(lines) >= 4 {
+				req.Description = strings.TrimSpace(lines[3])
 			}
 		} else {
-			// Second line is description
-			req.Description = secondLine
-
-			// Check for description on third line (should not happen, but handle gracefully)
-			if len(lines) >= 3 {
-				req.Description += "\n" + strings.TrimSpace(lines[2])
-			}
+			req.Description = thirdLine
 		}
 	}
 

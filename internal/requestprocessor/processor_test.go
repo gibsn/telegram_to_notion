@@ -441,7 +441,7 @@ func TestParseTweakCommand(t *testing.T) {
 	}{
 		{
 			name:  "demo minimal",
-			input: "/tweak demo Track1 EditA",
+			input: "/tweak demo Track1\nEditA",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -449,8 +449,17 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
-			name:  "demo with start time on second line",
-			input: "/tweak demo Track1 EditA\n1:23",
+			name:  "demo multiword",
+			input: "/tweak demo Track One\nEdit Two",
+			want: &TweakRequest{
+				Mode:      tweakModeDemo,
+				TrackName: "Track One",
+				EditName:  "Edit Two",
+			},
+		},
+		{
+			name:  "demo with start time on third line",
+			input: "/tweak demo Track1\nEditA\n1:23",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -459,8 +468,8 @@ func TestParseTweakCommand(t *testing.T) {
 			},
 		},
 		{
-			name:  "demo with start and end time on second line",
-			input: "/tweak demo Track1 EditA\n1:23 2:34",
+			name:  "demo with start and end time on third line",
+			input: "/tweak demo Track1\nEditA\n1:23 2:34",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -471,7 +480,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with start, end and description",
-			input: "/tweak demo Track1 EditA\n1:23 2:34\nSome explanation",
+			input: "/tweak demo Track1\nEditA\n1:23 2:34\nSome explanation",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -483,7 +492,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with description on second line",
-			input: "/tweak demo Track1 EditA\nSome explanation",
+			input: "/tweak demo Track1\nEditA\nSome explanation",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -493,7 +502,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "invalid time format treated as description",
-			input: "/tweak demo Track1 EditA\n1:2",
+			input: "/tweak demo Track1\nEditA\n1:2",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -503,7 +512,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with multi-word edit name",
-			input: "/tweak demo Track1 My Awesome Edit",
+			input: "/tweak demo Track1\nMy Awesome Edit",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -512,7 +521,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with multi-word edit name and start time",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23",
+			input: "/tweak demo Track1\nMy Awesome Edit\n1:23",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -522,7 +531,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with multi-word edit name, start and end",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34",
+			input: "/tweak demo Track1\nMy Awesome Edit\n1:23 2:34",
 			want: &TweakRequest{
 				Mode:      tweakModeDemo,
 				TrackName: "Track1",
@@ -533,7 +542,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with multi-word edit name and description",
-			input: "/tweak demo Track1 My Awesome Edit\nSome explanation",
+			input: "/tweak demo Track1\nMy Awesome Edit\nSome explanation",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -543,7 +552,7 @@ func TestParseTweakCommand(t *testing.T) {
 		},
 		{
 			name:  "demo with multi-word edit name, times and description",
-			input: "/tweak demo Track1 My Awesome Edit\n1:23 2:34\nSome explanation",
+			input: "/tweak demo Track1\nMy Awesome Edit\n1:23 2:34\nSome explanation",
 			want: &TweakRequest{
 				Mode:        tweakModeDemo,
 				TrackName:   "Track1",
@@ -571,6 +580,7 @@ func TestParseTweakCommand(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
 			assert.NoError(t, err)
