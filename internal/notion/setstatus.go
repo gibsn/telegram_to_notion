@@ -35,7 +35,7 @@ func (n *Notion) SetStatus(setRequest *SetStatusRequest) error {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequest("PATCH", notionAPI+"pages/"+pageID, bytes.NewReader(body))
+	req, err := http.NewRequest("PATCH", n.apiBaseURL+"pages/"+pageID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

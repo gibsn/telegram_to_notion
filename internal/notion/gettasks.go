@@ -117,7 +117,7 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 	}
 
 	req, err := http.NewRequest(
-		"POST", notionAPI+path.Join("databases", dbID, "query"),
+		"POST", n.apiBaseURL+path.Join("databases", dbID, "query"),
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
