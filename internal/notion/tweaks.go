@@ -20,9 +20,42 @@ const (
 	TweakMixStatusAnalysis = "Анализ"
 )
 
-// LoadTracks queries the tracks database and returns a list of track titles (property "Песня")
+// Track status constants for "In progress" group
+const (
+	TrackStatusDemo      = "Демка"
+	TrackStatusRecording = "Запись"
+	TrackStatusMixing    = "Сведение"
+)
+
+// createTracksInProgressFilter creates a filter for tracks with "In progress" statuses
+func createTracksInProgressFilter() map[string]interface{} {
+	inProgressStatuses := []string{
+		TrackStatusDemo,
+		TrackStatusRecording,
+		TrackStatusMixing,
+	}
+
+	orFilters := make([]map[string]interface{}, 0, len(inProgressStatuses))
+	for _, status := range inProgressStatuses {
+		orFilters = append(orFilters, map[string]interface{}{
+			"property": "Статус",
+			"status": map[string]string{
+				"equals": status,
+			},
+		})
+	}
+
+	return map[string]interface{}{
+		"or": orFilters,
+	}
+}
+
+// LoadTracks queries the tracks database and returns a list of track titles (property "Название")
+// Only returns tracks with status from "In progress" group: Демка, Запись, Сведение
 func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
-	payload := map[string]interface{}{}
+	payload := map[string]interface{}{
+		"filter": createTracksInProgressFilter(),
+	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {

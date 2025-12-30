@@ -18,7 +18,7 @@ const (
 	testMethodPOSTTweaks    = "POST"
 )
 
-func TestLoadTracks(t *testing.T) {
+func TestLoadTracks(t *testing.T) { //nolint:gocyclo
 	tests := []struct {
 		name           string
 		dbID           string
@@ -61,6 +61,49 @@ func TestLoadTracks(t *testing.T) {
 				}
 				if req.Header.Get("Notion-Version") != testNotionVersionTweaks {
 					t.Errorf("expected Notion-Version header, got %s", req.Header.Get("Notion-Version"))
+				}
+
+				// Validate that filter is present in request body
+				var payload map[string]interface{}
+				bodyBytes, _ := io.ReadAll(req.Body) //nolint:errcheck
+				if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+
+				filter, ok := payload["filter"]
+				if !ok {
+					t.Error("expected filter in request payload")
+				}
+
+				filterMap := filter.(map[string]interface{})
+				orFilters, ok := filterMap["or"].([]interface{})
+				if !ok {
+					t.Error("expected 'or' filter in request payload")
+				}
+
+				// Check that we have filters for all three "In progress" statuses
+				expectedStatuses := map[string]bool{
+					TrackStatusDemo:      false,
+					TrackStatusRecording: false,
+					TrackStatusMixing:    false,
+				}
+
+				for _, orFilter := range orFilters {
+					filterEntry := orFilter.(map[string]interface{})
+					if filterEntry["property"] != "Статус" {
+						continue
+					}
+					statusField := filterEntry["status"].(map[string]interface{})
+					statusName := statusField["equals"].(string)
+					if _, exists := expectedStatuses[statusName]; exists {
+						expectedStatuses[statusName] = true
+					}
+				}
+
+				for status, found := range expectedStatuses {
+					if !found {
+						t.Errorf("expected filter for status '%s' not found", status)
+					}
 				}
 			},
 		},
@@ -138,7 +181,10 @@ func TestLoadTracks(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				// Validate request
 				if tt.validateReq != nil {
-					tt.validateReq(t, req)
+					bodyBytes, _ := io.ReadAll(req.Body) //nolint:errcheck
+					validateReq := req.Clone(req.Context())
+					validateReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+					tt.validateReq(t, validateReq)
 				}
 
 				// Write response
