@@ -18,7 +18,7 @@ const (
 	testMethodPOSTTweaks    = "POST"
 )
 
-func TestLoadTracks(t *testing.T) {
+func TestLoadTracks(t *testing.T) { //nolint:gocyclo
 	tests := []struct {
 		name           string
 		dbID           string
