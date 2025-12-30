@@ -14,6 +14,9 @@ type Notion struct {
 	token string
 
 	client *http.Client
+
+	tweaksDemoDBID string
+	tweaksMixDBID  string
 }
 
 const (
@@ -93,4 +96,9 @@ func (n *Notion) doWithRetries(req *http.Request) (*http.Response, error) {
 
 func (n *Notion) SetDebug(debug bool) {
 	n.debug = debug
+}
+
+func (n *Notion) SetTweaksDBIDs(demoDBID, mixDBID string) {
+	n.tweaksDemoDBID = demoDBID
+	n.tweaksMixDBID = mixDBID
 }

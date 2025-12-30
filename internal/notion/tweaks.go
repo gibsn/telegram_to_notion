@@ -10,9 +10,14 @@ import (
 	"strings"
 )
 
-// Tweak status constants
+// Tweak status constants for demo tweaks
 const (
-	TweakStatusTODO = "todo"
+	TweakDemoStatusTODO = "todo"
+)
+
+// Tweak status constants for mix tweaks
+const (
+	TweakMixStatusAnalysis = "Анализ"
 )
 
 // LoadTracks queries the tracks database and returns a list of track titles (property "Песня")
@@ -75,9 +80,7 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 	return titlesToIDs, nil
 }
 
-type CreateTweakDemoRequest struct {
-	NotionDBID       string
-	TitleProperty    string
+type CreateTweakRequest struct {
 	Title            string
 	TrackName        string
 	TrackPageID      string
@@ -85,26 +88,41 @@ type CreateTweakDemoRequest struct {
 	End              string
 	Explanation      string
 	AuthorNotionUser string
-
-	Debug bool
+	StatusType       string // "select" or "status"
 }
 
-func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
-	r.TitleProperty = "Кратко"
+func (n *Notion) createTweak(dbID, status string, r *CreateTweakRequest) (string, error) {
+	if dbID == "" {
+		return "", fmt.Errorf("database ID is empty")
+	}
+
+	titleProperty := "Кратко"
+
+	// Status field can be either "select" or "status" type
+	var statusField map[string]interface{}
+	if r.StatusType == "status" {
+		statusField = map[string]interface{}{
+			"status": map[string]string{
+				"name": status,
+			},
+		}
+	} else {
+		statusField = map[string]interface{}{
+			"select": map[string]string{
+				"name": status,
+			},
+		}
+	}
 
 	payload := map[string]interface{}{
-		"parent": map[string]string{"database_id": r.NotionDBID},
+		"parent": map[string]string{"database_id": dbID},
 		"properties": map[string]interface{}{
-			r.TitleProperty: map[string]interface{}{
+			titleProperty: map[string]interface{}{
 				"title": []map[string]interface{}{
 					{"text": map[string]string{"content": r.Title}},
 				},
 			},
-			"Статус": map[string]interface{}{
-				"select": map[string]string{
-					"name": TweakStatusTODO,
-				},
-			},
+			"Статус": statusField,
 		},
 	}
 
@@ -155,6 +173,12 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 		return "", fmt.Errorf("could not marshal request: %w", err)
 	}
 
+	if n.debug {
+		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
+		log.Println(string(prettyPayload))
+		log.Println(notionAPI + "pages")
+	}
+
 	req, err := http.NewRequest("POST", notionAPI+"pages", bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("could not create a request: %w", err)
@@ -181,4 +205,20 @@ func (n *Notion) CreateTweakDemo(r *CreateTweakDemoRequest) (string, error) {
 	cleanID := strings.ReplaceAll(result.ID, "-", "")
 	url := notionURL + cleanID
 	return url, nil
+}
+
+func (n *Notion) CreateTweakDemo(r *CreateTweakRequest) (string, error) {
+	if n.tweaksDemoDBID == "" {
+		return "", fmt.Errorf("tweaks demo DB ID is not set")
+	}
+	r.StatusType = "select"
+	return n.createTweak(n.tweaksDemoDBID, TweakDemoStatusTODO, r)
+}
+
+func (n *Notion) CreateTweakMix(r *CreateTweakRequest) (string, error) {
+	if n.tweaksMixDBID == "" {
+		return "", fmt.Errorf("tweaks mix DB ID is not set")
+	}
+	r.StatusType = "status"
+	return n.createTweak(n.tweaksMixDBID, TweakMixStatusAnalysis, r)
 }
