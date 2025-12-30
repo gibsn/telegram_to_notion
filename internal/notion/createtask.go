@@ -106,10 +106,10 @@ func (n *Notion) CreateNotionTask(r *CreateTaskRequest) (string, error) {
 	if r.Debug {
 		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
 		log.Println(string(prettyPayload))
-		log.Println(notionAPI + "pages")
+		log.Println(n.apiBaseURL + "pages")
 	}
 
-	req, err := http.NewRequest("POST", notionAPI+"pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", n.apiBaseURL+"pages", bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("could not create a request: %w", err)
 	}

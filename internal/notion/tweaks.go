@@ -30,7 +30,7 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 	}
 
 	req, err := http.NewRequest(
-		"POST", notionAPI+path.Join("databases", dbID, "query"),
+		"POST", n.apiBaseURL+path.Join("databases", dbID, "query"),
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
@@ -43,7 +43,7 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 	req.Header.Set("Notion-Version", "2022-06-28")
 
 	if n.debug {
-		url := notionAPI + path.Join("databases", dbID, "query")
+		url := n.apiBaseURL + path.Join("databases", dbID, "query")
 		log.Println(url)
 	}
 
@@ -176,10 +176,10 @@ func (n *Notion) createTweak(dbID, status string, r *CreateTweakRequest) (string
 	if n.debug {
 		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
 		log.Println(string(prettyPayload))
-		log.Println(notionAPI + "pages")
+		log.Println(n.apiBaseURL + "pages")
 	}
 
-	req, err := http.NewRequest("POST", notionAPI+"pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", n.apiBaseURL+"pages", bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("could not create a request: %w", err)
 	}

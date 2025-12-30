@@ -15,6 +15,8 @@ type Notion struct {
 
 	client *http.Client
 
+	apiBaseURL string
+
 	tweaksDemoDBID string
 	tweaksMixDBID  string
 }
@@ -38,13 +40,19 @@ const (
 
 func NewNotion(token string) *Notion {
 	n := &Notion{
-		token: token,
+		token:      token,
+		apiBaseURL: notionAPI,
 		client: &http.Client{
 			Timeout: timeoutNotionAPI,
 		},
 	}
 
 	return n
+}
+
+// SetAPIBaseURL sets the base URL for API requests. Used primarily for testing.
+func (n *Notion) SetAPIBaseURL(url string) {
+	n.apiBaseURL = url
 }
 
 func (n *Notion) doWithRetries(req *http.Request) (*http.Response, error) {
