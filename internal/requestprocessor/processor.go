@@ -38,7 +38,6 @@ type RequestProcessor struct {
 
 	debug bool
 
-	tweaksDBID string
 	tracksDBID string
 	timeRe     *regexp.Regexp
 }
@@ -82,8 +81,7 @@ func (p *RequestProcessor) SetTracksCache(cache *trackscache.Cache) {
 	p.tracksCache = cache
 }
 
-func (p *RequestProcessor) SetTweaksConfig(tweaksDBID, tracksDBID string) {
-	p.tweaksDBID = tweaksDBID
+func (p *RequestProcessor) SetTracksDBID(tracksDBID string) {
 	p.tracksDBID = tracksDBID
 }
 
@@ -623,10 +621,6 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
 	}
 
-	if req.Mode == tweakModeMix {
-		return "not implemented", nil
-	}
-
 	if p.tracksCache == nil {
 		return "", fmt.Errorf("tracks cache is not initialized")
 	}
@@ -665,8 +659,7 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		}
 	}
 
-	r := &notion.CreateTweakDemoRequest{
-		NotionDBID:       p.tweaksDBID,
+	r := &notion.CreateTweakRequest{
 		Title:            req.EditName,
 		TrackName:        req.TrackName,
 		TrackPageID:      trackPageID,
@@ -676,11 +669,12 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 		AuthorNotionUser: authorID,
 	}
 
-	if p.debug {
-		r.Debug = true
+	var url string
+	if req.Mode == tweakModeMix {
+		url, err = p.notion.CreateTweakMix(r)
+	} else {
+		url, err = p.notion.CreateTweakDemo(r)
 	}
-
-	url, err := p.notion.CreateTweakDemo(r)
 	if err != nil {
 		return "", fmt.Errorf("failed to create tweak: %w", err)
 	}
