@@ -591,7 +591,6 @@ func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakReque
 			// Third line contains time(s)
 			req.Start = matches[1]
 			if len(matches) >= 3 && matches[2] != "" {
-				log.Printf("'%v','%v','%v'", matches[0], matches[1], matches[2])
 				req.End = matches[2]
 			}
 

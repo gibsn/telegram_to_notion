@@ -77,7 +77,7 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 
 	if n.debug {
 		url := n.apiBaseURL + path.Join("databases", dbID, "query")
-		log.Println(url)
+		log.Printf("Tweaks url: %s", url)
 	}
 
 	resp, err := n.doWithRetries(req)
@@ -208,8 +208,7 @@ func (n *Notion) createTweak(dbID, status string, r *CreateTweakRequest) (string
 
 	if n.debug {
 		prettyPayload, _ := json.MarshalIndent(payload, "", "  ") //nolint:errcheck
-		log.Println(string(prettyPayload))
-		log.Println(n.apiBaseURL + "pages")
+		log.Printf("Tweaks payload: %s", string(prettyPayload))
 	}
 
 	req, err := http.NewRequest("POST", n.apiBaseURL+"pages", bytes.NewBuffer(body))
