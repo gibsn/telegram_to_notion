@@ -1,6 +1,7 @@
 package notion
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -55,13 +56,21 @@ func (n *Notion) SetAPIBaseURL(url string) {
 	n.apiBaseURL = url
 }
 
-func (n *Notion) doWithRetries(req *http.Request) (*http.Response, error) {
+func (n *Notion) doWithRetries(req *http.Request, body []byte) (*http.Response, error) {
 	var (
 		resp *http.Response
 		err  error
 	)
 
+	req.Header.Set("Authorization", "Bearer "+n.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Notion-Version", "2022-06-28")
+
 	for i := 1; i <= numberOfRetries; i++ {
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		req.ContentLength = int64(len(body))
+
 		resp, err = n.client.Do(req)
 
 		if err != nil || resp.StatusCode >= 300 {
