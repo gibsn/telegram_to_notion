@@ -1,7 +1,6 @@
 package notion
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -64,23 +63,18 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 
 	req, err := http.NewRequest(
 		"POST", n.apiBaseURL+path.Join("databases", dbID, "query"),
-		bytes.NewBuffer(body),
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not create a request: %w", err)
 	}
-
-	req.Header.Set("Authorization", "Bearer "+n.token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Notion-Version", "2022-06-28")
 
 	if n.debug {
 		url := n.apiBaseURL + path.Join("databases", dbID, "query")
 		log.Printf("Tweaks url: %s", url)
 	}
 
-	resp, err := n.doWithRetries(req)
+	resp, err := n.doWithRetries(req, body)
 	if err != nil {
 		return nil, err
 	}
@@ -211,17 +205,12 @@ func (n *Notion) createTweak(dbID, status string, r *CreateTweakRequest) (string
 		log.Printf("Tweaks payload: %s", string(prettyPayload))
 	}
 
-	req, err := http.NewRequest("POST", n.apiBaseURL+"pages", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", n.apiBaseURL+"pages", nil)
 	if err != nil {
 		return "", fmt.Errorf("could not create a request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+n.token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Notion-Version", "2022-06-28")
-
-	resp, err := n.doWithRetries(req)
+	resp, err := n.doWithRetries(req, body)
 	if err != nil {
 		return "", err
 	}

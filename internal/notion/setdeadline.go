@@ -1,7 +1,6 @@
 package notion
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,17 +38,12 @@ func (n *Notion) SetDeadline(setRequest *SetDeadlineRequest) error {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequest("PATCH", n.apiBaseURL+"pages/"+pageID, bytes.NewReader(body))
+	req, err := http.NewRequest("PATCH", n.apiBaseURL+"pages/"+pageID, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+n.token)
-	req.Header.Set("Notion-Version", "2022-06-28")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := n.doWithRetries(req)
+	resp, err := n.doWithRetries(req, body)
 	if err != nil {
 		return err
 	}
