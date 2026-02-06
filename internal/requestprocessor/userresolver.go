@@ -58,3 +58,12 @@ func (r *UserResolver) ResolveArr(tgNames []string) ([]string, error) {
 
 	return resolved, nil
 }
+
+// AllNotionUserIDs returns all Notion user IDs known to the resolver.
+func (r *UserResolver) AllNotionUserIDs() []string {
+	ids := make([]string, 0, len(r.tgToNotion))
+	for _, id := range r.tgToNotion {
+		ids = append(ids, id)
+	}
+	return ids
+}

@@ -237,6 +237,16 @@ func parseTaskCommand(message commandCommon) (
 	return req, nil
 }
 
+func parseAgendaCommand(message commandCommon) (*notion.CreateTaskRequest, error) {
+	taskName := strings.TrimSpace(message.restOfMessage)
+	if taskName == "" {
+		return nil, fmt.Errorf("please provide the agenda")
+	}
+	req := notion.NewCreateTaskRequest()
+	req.TaskName = taskName
+	return req, nil
+}
+
 func (p *RequestProcessor) extractTaskLink(message commandCommon) string {
 	for _, entity := range message.repliedToEntities {
 		if entity.Type == "text_link" {
@@ -361,6 +371,8 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 	switch message.command {
 	case "/task":
 		reply, err = withErrorReply(message, p.processTask)
+	case "/agenda":
+		reply, err = withErrorReply(message, p.processAgenda)
 	case "/deadline":
 		reply, err = withErrorReply(message, p.processDeadline)
 	case "/done":
@@ -391,6 +403,11 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/task":
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n/task $task_name\n$assignee1 $assignee2 ...\n$task_description (optional)",
+			err.Error(),
+		)
+	case "/agenda":
+		reply = fmt.Sprintf(
+			"%s\n\nUsage:\n/agenda $agenda",
 			err.Error(),
 		)
 	case "/deadline":
@@ -454,6 +471,27 @@ func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
 	)
 
 	return reply, nil
+}
+
+func (p *RequestProcessor) processAgenda(message commandCommon) (string, error) {
+	req, err := parseAgendaCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+	req.NotionDBID = p.notionDBID
+	req.Assignees = p.nameResolver.AllNotionUserIDs()
+	req.TaskName = "Agenda: " + req.TaskName
+
+	if p.debug {
+		req.Debug = true
+	}
+
+	url, err := p.notion.CreateNotionTask(req)
+	if err != nil {
+		return "", fmt.Errorf("error creating a task in Notion: %w", err)
+	}
+
+	return "Agenda created:\n" + url, nil
 }
 
 func (p *RequestProcessor) processDeadline(message commandCommon) (string, error) {
