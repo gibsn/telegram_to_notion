@@ -1,6 +1,9 @@
 package requestprocessor
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -673,4 +676,130 @@ func TestExtractCommand_TaskWithAndWithoutMention(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseAgendaCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      *notion.CreateTaskRequest
+		expectErr bool
+	}{
+		{
+			name:  "single word task name",
+			input: "/agenda Sync",
+			want: &notion.CreateTaskRequest{
+				TaskName:  "Sync",
+				Assignees: nil,
+			},
+		},
+		{
+			name:  "multi word task name",
+			input: "/agenda Weekly team sync",
+			want: &notion.CreateTaskRequest{
+				TaskName:  "Weekly team sync",
+				Assignees: nil,
+			},
+		},
+		{
+			name:  "task name with leading and trailing spaces",
+			input: "/agenda   Plan sprint   ",
+			want: &notion.CreateTaskRequest{
+				TaskName:  "Plan sprint",
+				Assignees: nil,
+			},
+		},
+		{
+			name:      "error: empty task name",
+			input:     "/agenda",
+			expectErr: true,
+		},
+		{
+			name:      "error: only spaces as task name",
+			input:     "/agenda   ",
+			expectErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+			command := cmd
+
+			got, err := parseAgendaCommand(command)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want.TaskName, got.TaskName)
+			assert.Empty(t, got.Assignees)
+		})
+	}
+}
+
+func TestAllNotionUserIDs(t *testing.T) {
+	r := NewUserResolver()
+	ids := r.AllNotionUserIDs()
+	// UserResolver has 7 known users (see userresolver.go)
+	assert.Len(t, ids, 7)
+	// All IDs should be non-empty UUIDs
+	for _, id := range ids {
+		assert.NotEmpty(t, id)
+		assert.Contains(t, id, "-")
+	}
+}
+
+func TestProcessAgenda(t *testing.T) {
+	const testDBID = "test-db-id"
+	const testPageID = "12345678-1234-1234-1234-123456789abc"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/pages" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var payload struct {
+			Properties map[string]interface{} `json:"properties"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		taskField, _ := payload.Properties["Задача"].(map[string]interface{})
+		titleArr, _ := taskField["title"].([]interface{})
+		if len(titleArr) > 0 {
+			titleObj, _ := titleArr[0].(map[string]interface{})
+			textObj, _ := titleObj["text"].(map[string]interface{})
+			if content, _ := textObj["content"].(string); content != "Agenda: Weekly sync" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+		assigneeField, _ := payload.Properties["Исполнитель"].(map[string]interface{})
+		people, _ := assigneeField["people"].([]interface{})
+		expectedCount := len(NewUserResolver().AllNotionUserIDs())
+		if len(people) != expectedCount {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": testPageID}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	p := NewRequestProcessor(n, testDBID, nil)
+
+	cmd, err := extractCommand("/agenda Weekly sync", makeBotCommandEntities("/agenda Weekly sync"))
+	assert.NoError(t, err)
+	message := cmd
+
+	reply, err := p.processAgenda(message)
+	assert.NoError(t, err)
+	assert.Contains(t, reply, "Agenda created:")
+	assert.Contains(t, reply, "https://www.notion.so/")
+	assert.Contains(t, reply, "12345678123412341234123456789abc")
 }
