@@ -231,7 +231,7 @@ func TestLoadAllTrackPages(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", testContentTypeTweaks)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		err = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
 				{
 					"id": "bbbbbbbb-1234-1234-1234-bbbbbbbbbbbb",
@@ -255,6 +255,9 @@ func TestLoadAllTrackPages(t *testing.T) {
 				},
 			},
 		})
+		if err != nil {
+			t.Fatalf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

@@ -521,7 +521,7 @@ func TestProcessTracks(t *testing.T) {
 				}
 
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				err = json.NewEncoder(w).Encode(map[string]interface{}{
 					"results": []map[string]interface{}{
 						{
 							"id": "12345678-1234-1234-1234-123456789abc",
@@ -545,6 +545,7 @@ func TestProcessTracks(t *testing.T) {
 						},
 					},
 				})
+				assert.NoError(t, err)
 			}))
 			defer server.Close()
 
