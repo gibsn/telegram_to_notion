@@ -3,6 +3,7 @@ package requestprocessor
 import (
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"regexp"
 	"strings"
@@ -320,6 +321,19 @@ func (p *RequestProcessor) parseTasksCommand(message commandCommon) (
 	return userID, nil
 }
 
+func parseTracksCommand(message commandCommon) (bool, error) {
+	arg := strings.TrimSpace(message.restOfMessage)
+	if arg == "" {
+		return false, nil
+	}
+
+	if strings.EqualFold(arg, "all") {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("unknown argument %q", arg)
+}
+
 type commandHandler func(commandCommon) (string, error)
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -379,6 +393,8 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 		reply, err = withErrorReply(message, p.processDone)
 	case "/tasks":
 		reply, err = withErrorReply(message, p.processTasks)
+	case "/tracks":
+		reply, err = withErrorReply(message, p.processTracks)
 	case "/tweak":
 		reply, err = withErrorReply(message, p.processTweak)
 	default:
@@ -423,6 +439,11 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	case "/tasks":
 		reply = fmt.Sprintf(
 			"%s\n\nUsage:\n/tasks",
+			err.Error(),
+		)
+	case "/tracks":
+		reply = fmt.Sprintf(
+			"%s\n\nUsage:\n/tracks\n/tracks all",
 			err.Error(),
 		)
 	case "/tweak":
@@ -565,6 +586,49 @@ func (p *RequestProcessor) processTasks(message commandCommon) (string, error) {
 		}
 
 		reply.WriteString("\n")
+	}
+
+	return reply.String(), nil
+}
+
+func (p *RequestProcessor) processTracks(message commandCommon) (string, error) {
+	loadAll, err := parseTracksCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tracksDBID == "" {
+		return "", fmt.Errorf("tracks database is not configured")
+	}
+
+	var tracks []notion.TrackPage
+	if loadAll {
+		tracks, err = p.notion.LoadAllTrackPages(p.tracksDBID)
+	} else {
+		tracks, err = p.notion.LoadTrackPages(p.tracksDBID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("error loading tracks: %w", err)
+	}
+
+	if len(tracks) == 0 {
+		if loadAll {
+			return "No tracks found", nil
+		}
+		return "No tracks found in progress", nil
+	}
+
+	var reply strings.Builder
+	if loadAll {
+		reply.WriteString("All tracks:\n\n")
+	} else {
+		reply.WriteString("Tracks in progress:\n\n")
+	}
+
+	for i, track := range tracks {
+		reply.WriteString(
+			fmt.Sprintf("%d. <a href=\"%s\">%s</a>\n", i+1, track.Link, html.EscapeString(track.Title)),
+		)
 	}
 
 	return reply.String(), nil

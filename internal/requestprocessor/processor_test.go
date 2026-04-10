@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -431,6 +432,135 @@ func TestParseTasksCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.want, got)
 			}
+		})
+	}
+}
+
+func TestParseTracksCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantAll   bool
+		expectErr bool
+	}{
+		{
+			name:    "without arguments loads only in progress",
+			input:   "/tracks",
+			wantAll: false,
+		},
+		{
+			name:    "all argument loads all tracks",
+			input:   "/tracks all",
+			wantAll: true,
+		},
+		{
+			name:    "all argument is case insensitive",
+			input:   "/tracks ALL",
+			wantAll: true,
+		},
+		{
+			name:      "unknown argument returns error",
+			input:     "/tracks archived",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+
+			got, err := parseTracksCommand(cmd)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantAll, got)
+		})
+	}
+}
+
+func TestProcessTracks(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantPrefix string
+		wantFilter bool
+	}{
+		{
+			name:       "default returns in progress tracks",
+			input:      "/tracks",
+			wantPrefix: "Tracks in progress:\n\n",
+			wantFilter: true,
+		},
+		{
+			name:       "all returns all tracks",
+			input:      "/tracks all",
+			wantPrefix: "All tracks:\n\n",
+			wantFilter: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var payload map[string]interface{}
+				err := json.NewDecoder(req.Body).Decode(&payload)
+				assert.NoError(t, err)
+
+				filter, hasFilter := payload["filter"]
+				assert.Equal(t, tt.wantFilter, hasFilter)
+				if tt.wantFilter {
+					filterMap, ok := filter.(map[string]interface{})
+					assert.True(t, ok)
+					_, ok = filterMap["or"]
+					assert.True(t, ok)
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{
+							"id": "12345678-1234-1234-1234-123456789abc",
+							"properties": map[string]interface{}{
+								"Название": map[string]interface{}{
+									"title": []map[string]interface{}{
+										{"plain_text": "Beta & Co"},
+									},
+								},
+							},
+						},
+						{
+							"id": "aaaaaaaa-1234-1234-1234-aaaaaaaaaaaa",
+							"properties": map[string]interface{}{
+								"Название": map[string]interface{}{
+									"title": []map[string]interface{}{
+										{"plain_text": "Alpha"},
+									},
+								},
+							},
+						},
+					},
+				})
+			}))
+			defer server.Close()
+
+			n := notion.NewNotion("test-token")
+			n.SetAPIBaseURL(server.URL + "/")
+			p := NewRequestProcessor(n, "", nil)
+			p.SetTracksDBID("tracks-db-id")
+
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+
+			reply, err := p.processTracks(cmd)
+			assert.NoError(t, err)
+			assert.True(t, strings.HasPrefix(reply, tt.wantPrefix))
+			assert.Contains(t, reply, "1. <a href=\"https://www.notion.so/aaaaaaaa123412341234aaaaaaaaaaaa\">Alpha</a>")
+			assert.Contains(t, reply, "2. <a href=\"https://www.notion.so/12345678123412341234123456789abc\">Beta &amp; Co</a>")
 		})
 	}
 }

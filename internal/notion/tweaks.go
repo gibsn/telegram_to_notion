@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -49,11 +50,52 @@ func createTracksInProgressFilter() map[string]interface{} {
 	}
 }
 
-// LoadTracks queries the tracks database and returns a list of track titles (property "Название")
-// Only returns tracks with status from "In progress" group: Демка, Запись, Сведение
-func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
-	payload := map[string]interface{}{
-		"filter": createTracksInProgressFilter(),
+type TrackPage struct {
+	Title  string
+	PageID string
+	Link   string
+}
+
+func trackLinkFromPageID(pageID string) string {
+	return notionURL + strings.ReplaceAll(pageID, "-", "")
+}
+
+func parseTrackPages(result struct {
+	Results []struct {
+		ID         string `json:"id"`
+		Properties map[string]struct {
+			Title []struct {
+				PlainText string `json:"plain_text"`
+			} `json:"title"`
+		} `json:"properties"`
+	} `json:"results"`
+}) []TrackPage {
+	tracks := make([]TrackPage, 0, len(result.Results))
+
+	for _, r := range result.Results {
+		prop, ok := r.Properties["Название"]
+		if !ok || len(prop.Title) == 0 {
+			continue
+		}
+
+		tracks = append(tracks, TrackPage{
+			Title:  prop.Title[0].PlainText,
+			PageID: r.ID,
+			Link:   trackLinkFromPageID(r.ID),
+		})
+	}
+
+	sort.Slice(tracks, func(i, j int) bool {
+		return strings.ToLower(tracks[i].Title) < strings.ToLower(tracks[j].Title)
+	})
+
+	return tracks
+}
+
+func (n *Notion) loadTrackPages(dbID string, filter map[string]interface{}) ([]TrackPage, error) {
+	payload := map[string]interface{}{}
+	if filter != nil {
+		payload["filter"] = filter
 	}
 
 	body, err := json.Marshal(payload)
@@ -71,7 +113,7 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 
 	if n.debug {
 		url := n.apiBaseURL + path.Join("databases", dbID, "query")
-		log.Printf("Tweaks url: %s", url)
+		log.Printf("Tracks url: %s", url)
 	}
 
 	resp, err := n.doWithRetries(req, body)
@@ -95,13 +137,28 @@ func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 		return nil, err
 	}
 
-	titlesToIDs := make(map[string]string, len(result.Results))
-	for _, r := range result.Results {
-		prop, ok := r.Properties["Название"]
-		if !ok || len(prop.Title) == 0 {
-			continue
-		}
-		titlesToIDs[prop.Title[0].PlainText] = r.ID
+	return parseTrackPages(result), nil
+}
+
+func (n *Notion) LoadTrackPages(dbID string) ([]TrackPage, error) {
+	return n.loadTrackPages(dbID, createTracksInProgressFilter())
+}
+
+func (n *Notion) LoadAllTrackPages(dbID string) ([]TrackPage, error) {
+	return n.loadTrackPages(dbID, nil)
+}
+
+// LoadTracks queries the tracks database and returns a list of track titles (property "Название")
+// Only returns tracks with status from "In progress" group: Демка, Запись, Сведение
+func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
+	tracks, err := n.LoadTrackPages(dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	titlesToIDs := make(map[string]string, len(tracks))
+	for _, track := range tracks {
+		titlesToIDs[track.Title] = track.PageID
 	}
 
 	return titlesToIDs, nil
