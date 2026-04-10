@@ -218,6 +218,70 @@ func TestLoadTracks(t *testing.T) { //nolint:gocyclo
 	}
 }
 
+func TestLoadAllTrackPages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var payload map[string]interface{}
+		err := json.NewDecoder(req.Body).Decode(&payload)
+		if err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+
+		if _, ok := payload["filter"]; ok {
+			t.Fatalf("did not expect filter for loading all tracks")
+		}
+
+		w.Header().Set("Content-Type", testContentTypeTweaks)
+		err = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{
+					"id": "bbbbbbbb-1234-1234-1234-bbbbbbbbbbbb",
+					"properties": map[string]interface{}{
+						"Название": map[string]interface{}{
+							"title": []map[string]interface{}{
+								{"plain_text": "Bravo"},
+							},
+						},
+					},
+				},
+				{
+					"id": "aaaaaaaa-1234-1234-1234-aaaaaaaaaaaa",
+					"properties": map[string]interface{}{
+						"Название": map[string]interface{}{
+							"title": []map[string]interface{}{
+								{"plain_text": "Alpha"},
+							},
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	notion := NewNotion("test-token")
+	notion.SetAPIBaseURL(server.URL + "/")
+
+	tracks, err := notion.LoadAllTrackPages("db-tracks-all")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(tracks) != 2 {
+		t.Fatalf("expected 2 tracks, got %d", len(tracks))
+	}
+
+	if tracks[0].Title != "Alpha" || tracks[1].Title != "Bravo" {
+		t.Fatalf("expected tracks to be sorted alphabetically, got %#v", tracks)
+	}
+
+	if tracks[0].Link != notionURL+"aaaaaaaa123412341234aaaaaaaaaaaa" {
+		t.Fatalf("unexpected link: %s", tracks[0].Link)
+	}
+}
+
 //nolint:dupl,gocyclo // Test functions have similar structure but test different endpoints
 func TestCreateTweakDemo(t *testing.T) {
 	tests := []struct {
