@@ -559,8 +559,12 @@ func TestProcessTracks(t *testing.T) {
 			reply, err := p.processTracks(cmd)
 			assert.NoError(t, err)
 			assert.True(t, strings.HasPrefix(reply, tt.wantPrefix))
-			assert.Contains(t, reply, "1. <a href=\"https://www.notion.so/aaaaaaaa123412341234aaaaaaaaaaaa\">Alpha</a>")
-			assert.Contains(t, reply, "2. <a href=\"https://www.notion.so/12345678123412341234123456789abc\">Beta &amp; Co</a>")
+			expectedAlpha := "1. <a href=\"https://www.notion.so/" +
+				"aaaaaaaa123412341234aaaaaaaaaaaa\">Alpha</a>"
+			expectedBeta := "2. <a href=\"https://www.notion.so/" +
+				"12345678123412341234123456789abc\">Beta &amp; Co</a>"
+			assert.Contains(t, reply, expectedAlpha)
+			assert.Contains(t, reply, expectedBeta)
 		})
 	}
 }
