@@ -4,15 +4,24 @@ github.com/davecgh/go-spew/spew
 # github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 ## explicit; go 1.16
 github.com/go-telegram-bot-api/telegram-bot-api/v5
+# github.com/phpdave11/gofpdi v1.0.14-0.20211212211723-1f10f9844311
+## explicit; go 1.12
+github.com/phpdave11/gofpdi
+# github.com/pkg/errors v0.8.1
+## explicit
+github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
-# github.com/stretchr/objx v0.5.2
-## explicit; go 1.20
+# github.com/signintech/gopdf v0.34.0
+## explicit; go 1.13
+github.com/signintech/gopdf
+github.com/signintech/gopdf/fontmaker/core
 # github.com/stretchr/testify v1.10.0
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/require
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3

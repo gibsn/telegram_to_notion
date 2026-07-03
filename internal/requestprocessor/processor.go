@@ -6,9 +6,11 @@ import (
 	"html"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gibsn/telegram_to_notion/internal/fixespdf"
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 	"github.com/gibsn/telegram_to_notion/internal/trackscache"
@@ -336,6 +338,11 @@ func parseTracksCommand(message commandCommon) (bool, error) {
 
 type commandHandler func(commandCommon) (string, error)
 
+type commandResponse struct {
+	text     string
+	document *fixespdf.Document
+}
+
 func (p *RequestProcessor) ProcessRequests() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -354,7 +361,7 @@ func (p *RequestProcessor) ProcessRequests() {
 			)
 		}
 
-		reply, err := p.processRequest(update)
+		response, err := p.processRequest(update)
 		if err != nil {
 			if errors.Is(err, errNotACommand) {
 				// Ignore non-commands silently
@@ -363,7 +370,21 @@ func (p *RequestProcessor) ProcessRequests() {
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
 		}
 
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
+		if response.document != nil {
+			doc := tgbotapi.NewDocument(update.Message.Chat.ID, tgbotapi.FileBytes{
+				Name:  response.document.FileName,
+				Bytes: response.document.Bytes,
+			})
+			doc.Caption = response.text
+			doc.ParseMode = "HTML"
+			doc.ReplyToMessageID = update.Message.MessageID
+			if _, err := p.bot.Send(doc); err != nil {
+				log.Printf("Could not send document to Telegram: %v", err)
+			}
+			continue
+		}
+
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, response.text)
 		msg.ParseMode = "HTML"
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
@@ -374,13 +395,14 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error) {
+func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandResponse, error) {
 	message, err := p.parseAndValidateTelegramRequest(update)
 	if err != nil {
-		return "", err
+		return commandResponse{}, err
 	}
 
 	var reply string
+	var document *fixespdf.Document
 
 	switch message.command {
 	case "/task":
@@ -396,13 +418,20 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error
 	case "/tracks":
 		reply, err = withErrorReply(message, p.processTracks)
 	case "/tweak":
-		reply, err = withErrorReply(message, p.processTweak)
+		switch {
+		case isTweakRenderCommand(message):
+			reply, document, err = p.processTweakRenderWithErrorReply(message)
+		case isTweakToWorkCommand(message):
+			reply, err = p.processTweakToWorkWithErrorReply(message)
+		default:
+			reply, err = withErrorReply(message, p.processTweak)
+		}
 	default:
 		err = errUnknownCommand
 		reply = "🖕🖕🖕"
 	}
 
-	return reply, err
+	return commandResponse{text: reply, document: document}, err
 }
 
 func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
@@ -452,7 +481,9 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 				"/tweak demo|mix $track\n"+
 				"$edit_name\n"+
 				"[start_time [end_time]] (time format as 0:05 or 01:10)\n"+
-				"[description]\n",
+				"[description]\n\n"+
+				"/tweak render $track $iteration_number\n"+
+				"/tweak towork $track\n",
 			err.Error(),
 		)
 	}
@@ -650,6 +681,15 @@ type TweakRequest struct {
 	Description string
 }
 
+type TweakRenderRequest struct {
+	TrackName string
+	Iteration int
+}
+
+type TweakToWorkRequest struct {
+	TrackName string
+}
+
 // nolint: gocyclo
 func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	if strings.TrimSpace(message.restOfMessage) == "" {
@@ -714,6 +754,186 @@ func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakReque
 	}
 
 	return req, nil
+}
+
+func isTweakRenderCommand(message commandCommon) bool {
+	parts := strings.Fields(message.restOfMessage)
+	return len(parts) > 0 && strings.EqualFold(parts[0], "render")
+}
+
+func isTweakToWorkCommand(message commandCommon) bool {
+	parts := strings.Fields(message.restOfMessage)
+	return len(parts) > 0 && strings.EqualFold(parts[0], "towork")
+}
+
+func parseTweakRenderCommand(message commandCommon) (*TweakRenderRequest, error) {
+	parts := strings.Fields(strings.TrimSpace(message.restOfMessage))
+	if len(parts) < 3 || !strings.EqualFold(parts[0], "render") {
+		return nil, fmt.Errorf("invalid body")
+	}
+
+	iteration, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil || iteration <= 0 {
+		return nil, fmt.Errorf("invalid iteration number")
+	}
+
+	trackName := strings.Join(parts[1:len(parts)-1], " ")
+	if strings.TrimSpace(trackName) == "" {
+		return nil, fmt.Errorf("track name is empty")
+	}
+
+	return &TweakRenderRequest{TrackName: trackName, Iteration: iteration}, nil
+}
+
+func parseTweakToWorkCommand(message commandCommon) (*TweakToWorkRequest, error) {
+	parts := strings.Fields(strings.TrimSpace(message.restOfMessage))
+	if len(parts) < 2 || !strings.EqualFold(parts[0], "towork") {
+		return nil, fmt.Errorf("invalid body")
+	}
+
+	trackName := strings.Join(parts[1:], " ")
+	if strings.TrimSpace(trackName) == "" {
+		return nil, fmt.Errorf("track name is empty")
+	}
+
+	return &TweakToWorkRequest{TrackName: trackName}, nil
+}
+
+func (p *RequestProcessor) processTweakRenderWithErrorReply(
+	message commandCommon,
+) (string, *fixespdf.Document, error) {
+	reply, doc, err := p.processTweakRender(message)
+	if err == nil {
+		return reply, doc, nil
+	}
+
+	if !errors.Is(err, errInvalidCommand) {
+		return err.Error(), nil, err
+	}
+
+	return fmt.Sprintf(
+		"%s\n\nUsage:\n/tweak render $track $iteration_number",
+		err.Error(),
+	), nil, err
+}
+
+func (p *RequestProcessor) processTweakToWorkWithErrorReply(message commandCommon) (string, error) {
+	reply, err := p.processTweakToWork(message)
+	if err == nil {
+		return reply, nil
+	}
+
+	if !errors.Is(err, errInvalidCommand) {
+		return err.Error(), err
+	}
+
+	return fmt.Sprintf("%s\n\nUsage:\n/tweak towork $track", err.Error()), err
+}
+
+func (p *RequestProcessor) processTweakRender(
+	message commandCommon,
+) (string, *fixespdf.Document, error) {
+	req, err := parseTweakRenderCommand(message)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tracksCache == nil {
+		return "", nil, fmt.Errorf("tracks cache is not initialized")
+	}
+
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
+		return fmt.Sprintf(
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
+		), nil, nil
+	}
+
+	tweaks, err := p.notion.LoadReadyMixTweaksForTrack(trackPageID)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load ready tweaks: %w", err)
+	}
+	if len(tweaks) == 0 {
+		return fmt.Sprintf("No tweaks found for track \"%s\"", req.TrackName), nil, nil
+	}
+
+	rows := make([]fixespdf.Row, 0, len(tweaks))
+	for _, tweak := range tweaks {
+		rows = append(rows, fixespdf.Row{
+			Summary:     tweak.Summary,
+			TrackPart:   tweak.TrackPart,
+			Start:       tweak.Start,
+			End:         tweak.End,
+			Explanation: tweak.Explanation,
+			Author:      tweak.Author,
+		})
+	}
+
+	doc, err := fixespdf.Build(req.TrackName, req.Iteration, rows)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to build PDF: %w", err)
+	}
+
+	return tweakRenderCaption(req.TrackName, trackPageID, len(tweaks)), doc, nil
+}
+
+func (p *RequestProcessor) processTweakToWork(message commandCommon) (string, error) {
+	req, err := parseTweakToWorkCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tracksCache == nil {
+		return "", fmt.Errorf("tracks cache is not initialized")
+	}
+
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
+		return fmt.Sprintf(
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
+		), nil
+	}
+
+	updated, err := p.notion.MoveReadyMixTweaksToWorkForTrack(trackPageID)
+	if err != nil {
+		return "", fmt.Errorf("failed to move ready tweaks to work: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Sprintf("No ready tweaks found for track \"%s\"", req.TrackName), nil
+	}
+
+	return fmt.Sprintf(
+		"Moved %d %s for <a href=\"%s\">%s</a> to work",
+		updated,
+		tweaksWord(updated),
+		trackLinkFromPageID(trackPageID),
+		html.EscapeString(req.TrackName),
+	), nil
+}
+
+func tweakRenderCaption(trackName, trackPageID string, tweaksCount int) string {
+	return fmt.Sprintf(
+		"Generated %d %s for <a href=\"%s\">%s</a>",
+		tweaksCount,
+		tweaksWord(tweaksCount),
+		trackLinkFromPageID(trackPageID),
+		html.EscapeString(trackName),
+	)
+}
+
+func tweaksWord(count int) string {
+	if count == 1 {
+		return "tweak"
+	}
+	return "tweaks"
+}
+
+func trackLinkFromPageID(pageID string) string {
+	return "https://www.notion.so/" + strings.ReplaceAll(pageID, "-", "")
 }
 
 func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
+	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/stretchr/testify/assert"
@@ -738,6 +739,436 @@ func TestParseTweakCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseTweakRenderCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      *TweakRenderRequest
+		expectErr bool
+	}{
+		{
+			name:  "single word track",
+			input: "/tweak render Track1 2",
+			want:  &TweakRenderRequest{TrackName: "Track1", Iteration: 2},
+		},
+		{
+			name:  "multi word track",
+			input: "/tweak render Track One 12",
+			want:  &TweakRenderRequest{TrackName: "Track One", Iteration: 12},
+		},
+		{
+			name:      "iteration is not a number",
+			input:     "/tweak render Track One x",
+			expectErr: true,
+		},
+		{
+			name:      "iteration is zero",
+			input:     "/tweak render Track One 0",
+			expectErr: true,
+		},
+		{
+			name:      "missing track",
+			input:     "/tweak render 2",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+
+			got, err := parseTweakRenderCommand(cmd)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseTweakToWorkCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      *TweakToWorkRequest
+		expectErr bool
+	}{
+		{
+			name:  "single word track",
+			input: "/tweak towork Track1",
+			want:  &TweakToWorkRequest{TrackName: "Track1"},
+		},
+		{
+			name:  "multi word track",
+			input: "/tweak towork Track One",
+			want:  &TweakToWorkRequest{TrackName: "Track One"},
+		},
+		{
+			name:      "missing track",
+			input:     "/tweak towork",
+			expectErr: true,
+		},
+		{
+			name:      "wrong subcommand",
+			input:     "/tweak render Track One 1",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := extractCommand(tt.input, makeBotCommandEntities(tt.input))
+			assert.NoError(t, err)
+
+			got, err := parseTweakToWorkCommand(cmd)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestProcessTweakRender(t *testing.T) {
+	const (
+		tracksDBID = "tracks-db-id"
+		tweaksDBID = "tweaks-db-id"
+		trackID    = "track-page-id"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/databases/" + tracksDBID + "/query":
+			w.Header().Set("Content-Type", "application/json")
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"id": trackID,
+						"properties": map[string]interface{}{
+							"Название": map[string]interface{}{
+								"title": []map[string]interface{}{{"plain_text": "Track One"}},
+							},
+						},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		case "/v1/databases/" + tweaksDBID + "/query":
+			var payload map[string]interface{}
+			err := json.NewDecoder(r.Body).Decode(&payload)
+			assert.NoError(t, err)
+			filter := payload["filter"].(map[string]interface{})
+			andFilters := filter["and"].([]interface{})
+			relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
+			assert.Equal(t, trackID, relation["contains"])
+
+			w.Header().Set("Content-Type", "application/json")
+			err = json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"properties": map[string]interface{}{
+							"Кратко": map[string]interface{}{
+								"title": []map[string]interface{}{{"plain_text": "Fix vocal"}},
+							},
+							"Начало интервала": map[string]interface{}{
+								"rich_text": []map[string]interface{}{{"plain_text": "0:10"}},
+							},
+							"Конец интервала": map[string]interface{}{
+								"rich_text": []map[string]interface{}{{"plain_text": "0:20"}},
+							},
+							"Пояснение": map[string]interface{}{
+								"rich_text": []map[string]interface{}{{"plain_text": "Too loud"}},
+							},
+							"Автор (Manual)": map[string]interface{}{
+								"people": []map[string]interface{}{{"name": "Kirill"}},
+							},
+						},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	n.SetTweaksDBIDs("demo-db-id", tweaksDBID)
+	tracksCache := trackscache.NewTracksCache(n, tracksDBID, time.Minute)
+	assert.NoError(t, tracksCache.RefreshCache())
+
+	p := NewRequestProcessor(n, "", nil)
+	p.SetTracksCache(tracksCache)
+	input := "/tweak render Track One 3"
+	cmd, err := extractCommand(input, makeBotCommandEntities(input))
+	assert.NoError(t, err)
+
+	reply, doc, err := p.processTweakRender(cmd)
+
+	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		"Generated 1 tweak for "+
+			"<a href=\"https://www.notion.so/trackpageid\">Track One</a>",
+		reply,
+	)
+	assert.NotNil(t, doc)
+	assert.Equal(t, "Правки Track One 3.pdf", doc.FileName)
+	assert.True(t, strings.HasPrefix(string(doc.Bytes), "%PDF-"))
+}
+
+func TestTweakRenderCaption(t *testing.T) {
+	tests := []struct {
+		name       string
+		count      int
+		trackName  string
+		trackID    string
+		wantResult string
+	}{
+		{
+			name:      "one tweak",
+			count:     1,
+			trackName: "Track <One>",
+			trackID:   "aaaaaaaa-1234-1234-1234-aaaaaaaaaaaa",
+			wantResult: "Generated 1 tweak for " +
+				"<a href=\"https://www.notion.so/aaaaaaaa123412341234aaaaaaaaaaaa\">" +
+				"Track &lt;One&gt;</a>",
+		},
+		{
+			name:      "two tweaks",
+			count:     2,
+			trackName: "Track Two",
+			trackID:   "track-2",
+			wantResult: "Generated 2 tweaks for " +
+				"<a href=\"https://www.notion.so/track2\">Track Two</a>",
+		},
+		{
+			name:      "five tweaks",
+			count:     5,
+			trackName: "Track Five",
+			trackID:   "track-5",
+			wantResult: "Generated 5 tweaks for " +
+				"<a href=\"https://www.notion.so/track5\">Track Five</a>",
+		},
+		{
+			name:      "eleven tweaks",
+			count:     11,
+			trackName: "Track Eleven",
+			trackID:   "track-11",
+			wantResult: "Generated 11 tweaks for " +
+				"<a href=\"https://www.notion.so/track11\">Track Eleven</a>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tweakRenderCaption(tt.trackName, tt.trackID, tt.count)
+
+			assert.Equal(t, tt.wantResult, got)
+		})
+	}
+}
+
+func TestProcessTweakRenderNoReadyTweaks(t *testing.T) {
+	const (
+		tracksDBID = "tracks-db-id"
+		tweaksDBID = "tweaks-db-id"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/databases/" + tracksDBID + "/query":
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"id": "track-page-id",
+						"properties": map[string]interface{}{
+							"Название": map[string]interface{}{
+								"title": []map[string]interface{}{{"plain_text": "Track One"}},
+							},
+						},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		case "/v1/databases/" + tweaksDBID + "/query":
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{},
+			})
+			assert.NoError(t, err)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	n.SetTweaksDBIDs("demo-db-id", tweaksDBID)
+	tracksCache := trackscache.NewTracksCache(n, tracksDBID, time.Minute)
+	assert.NoError(t, tracksCache.RefreshCache())
+
+	p := NewRequestProcessor(n, "", nil)
+	p.SetTracksCache(tracksCache)
+	input := "/tweak render Track One 3"
+	cmd, err := extractCommand(input, makeBotCommandEntities(input))
+	assert.NoError(t, err)
+
+	reply, doc, err := p.processTweakRender(cmd)
+
+	assert.NoError(t, err)
+	assert.Nil(t, doc)
+	assert.Equal(t, "No tweaks found for track \"Track One\"", reply)
+}
+
+func TestProcessTweakToWork(t *testing.T) {
+	const (
+		tracksDBID = "tracks-db-id"
+		tweaksDBID = "tweaks-db-id"
+		trackID    = "track-page-id"
+		tweakID    = "tweak-page-id"
+	)
+
+	var patchedStatuses []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/databases/" + tracksDBID + "/query":
+			w.Header().Set("Content-Type", "application/json")
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"id": trackID,
+						"properties": map[string]interface{}{
+							"Название": map[string]interface{}{
+								"title": []map[string]interface{}{{"plain_text": "Track One"}},
+							},
+						},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		case "/v1/databases/" + tweaksDBID + "/query":
+			var payload map[string]interface{}
+			err := json.NewDecoder(r.Body).Decode(&payload)
+			assert.NoError(t, err)
+			filter := payload["filter"].(map[string]interface{})
+			andFilters := filter["and"].([]interface{})
+			relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
+			assert.Equal(t, trackID, relation["contains"])
+
+			w.Header().Set("Content-Type", "application/json")
+			err = json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"id":         tweakID,
+						"properties": map[string]interface{}{},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		case "/v1/pages/" + tweakID:
+			assert.Equal(t, http.MethodPatch, r.Method)
+			var payload map[string]interface{}
+			err := json.NewDecoder(r.Body).Decode(&payload)
+			assert.NoError(t, err)
+			props := payload["properties"].(map[string]interface{})
+			statusProp := props["Статус"].(map[string]interface{})
+			status := statusProp["status"].(map[string]interface{})
+			patchedStatuses = append(patchedStatuses, status["name"].(string))
+			w.Header().Set("Content-Type", "application/json")
+			err = json.NewEncoder(w).Encode(map[string]interface{}{"id": tweakID})
+			assert.NoError(t, err)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	n.SetTweaksDBIDs("demo-db-id", tweaksDBID)
+	tracksCache := trackscache.NewTracksCache(n, tracksDBID, time.Minute)
+	assert.NoError(t, tracksCache.RefreshCache())
+
+	p := NewRequestProcessor(n, "", nil)
+	p.SetTracksCache(tracksCache)
+	input := "/tweak towork Track One"
+	cmd, err := extractCommand(input, makeBotCommandEntities(input))
+	assert.NoError(t, err)
+
+	reply, err := p.processTweakToWork(cmd)
+
+	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		"Moved 1 tweak for <a href=\"https://www.notion.so/trackpageid\">Track One</a> to work",
+		reply,
+	)
+	assert.Equal(t, []string{notion.TweakMixStatusInWork}, patchedStatuses)
+}
+
+func TestProcessTweakToWorkNoReadyTweaks(t *testing.T) {
+	const (
+		tracksDBID = "tracks-db-id"
+		tweaksDBID = "tweaks-db-id"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/databases/" + tracksDBID + "/query":
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{
+						"id": "track-page-id",
+						"properties": map[string]interface{}{
+							"Название": map[string]interface{}{
+								"title": []map[string]interface{}{{"plain_text": "Track One"}},
+							},
+						},
+					},
+				},
+			})
+			assert.NoError(t, err)
+		case "/v1/databases/" + tweaksDBID + "/query":
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{},
+			})
+			assert.NoError(t, err)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	n.SetTweaksDBIDs("demo-db-id", tweaksDBID)
+	tracksCache := trackscache.NewTracksCache(n, tracksDBID, time.Minute)
+	assert.NoError(t, tracksCache.RefreshCache())
+
+	p := NewRequestProcessor(n, "", nil)
+	p.SetTracksCache(tracksCache)
+	input := "/tweak towork Track One"
+	cmd, err := extractCommand(input, makeBotCommandEntities(input))
+	assert.NoError(t, err)
+
+	reply, err := p.processTweakToWork(cmd)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "No ready tweaks found for track \"Track One\"", reply)
 }
 
 func TestCreateMessageLink(t *testing.T) {

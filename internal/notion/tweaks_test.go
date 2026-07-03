@@ -553,3 +553,188 @@ func TestCreateTweakMix(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadyMixTweaksForTrack(t *testing.T) {
+	const (
+		dbID        = "mix-db-id"
+		trackPageID = "track-page-id"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectedPath := path.Join("databases", dbID, "query")
+		if r.Method != http.MethodPost || r.URL.Path != "/"+expectedPath {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		filter := payload["filter"].(map[string]interface{})
+		andFilters := filter["and"].([]interface{})
+		if len(andFilters) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		relationFilter := andFilters[0].(map[string]interface{})
+		if relationFilter["property"] != "Песня" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		relation := relationFilter["relation"].(map[string]interface{})
+		if relation["contains"] != trackPageID {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		statusFilter := andFilters[1].(map[string]interface{})
+		status := statusFilter["status"].(map[string]interface{})
+		if status["equals"] != TweakMixStatusReady {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{
+					"properties": map[string]interface{}{
+						"Кратко": map[string]interface{}{
+							"title": []map[string]interface{}{{"plain_text": "Fix vocal"}},
+						},
+						"Дорожка": map[string]interface{}{
+							"rich_text": []map[string]interface{}{{"plain_text": "Lead"}},
+						},
+						"Начало интервала": map[string]interface{}{
+							"rich_text": []map[string]interface{}{{"plain_text": "0:10"}},
+						},
+						"Конец интервала": map[string]interface{}{
+							"rich_text": []map[string]interface{}{{"plain_text": "0:20"}},
+						},
+						"Пояснение": map[string]interface{}{
+							"rich_text": []map[string]interface{}{{"plain_text": "Too loud"}},
+						},
+						"Автор (Manual)": map[string]interface{}{
+							"people": []map[string]interface{}{{"name": "Kirill", "id": "user-id"}},
+						},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	n := NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/")
+	n.SetTweaksDBIDs("demo-db-id", dbID)
+
+	tweaks, err := n.LoadReadyMixTweaksForTrack(trackPageID)
+	if err != nil {
+		t.Fatalf("LoadReadyMixTweaksForTrack returned error: %v", err)
+	}
+	want := []RenderTweak{
+		{
+			Summary:     "Fix vocal",
+			TrackPart:   "Lead",
+			Start:       "0:10",
+			End:         "0:20",
+			Explanation: "Too loud",
+			Author:      "Kirill",
+		},
+	}
+	if len(tweaks) != len(want) || tweaks[0] != want[0] {
+		t.Fatalf("unexpected tweaks: got %#v, want %#v", tweaks, want)
+	}
+}
+
+func TestMoveReadyMixTweaksToWorkForTrack(t *testing.T) {
+	const (
+		dbID        = "mix-db-id"
+		trackPageID = "track-page-id"
+		firstTweak  = "first-tweak-id"
+		secondTweak = "second-tweak-id"
+	)
+
+	patched := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/" + path.Join("databases", dbID, "query"):
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			filter := payload["filter"].(map[string]interface{})
+			andFilters := filter["and"].([]interface{})
+			relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
+			if relation["contains"] != trackPageID {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			status := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
+			if status["equals"] != TweakMixStatusReady {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			w.Header().Set("Content-Type", testContentTypeTweaks)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{"id": firstTweak, "properties": map[string]interface{}{}},
+					{"id": secondTweak, "properties": map[string]interface{}{}},
+				},
+			}); err != nil {
+				t.Fatalf("failed to write response: %v", err)
+			}
+		case "/" + path.Join("pages", firstTweak), "/" + path.Join("pages", secondTweak):
+			if r.Method != http.MethodPatch {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			props := payload["properties"].(map[string]interface{})
+			statusProp := props["Статус"].(map[string]interface{})
+			status := statusProp["status"].(map[string]interface{})
+			patched[strings.TrimPrefix(r.URL.Path, "/pages/")] = status["name"].(string)
+
+			w.Header().Set("Content-Type", testContentTypeTweaks)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{"id": "updated"}); err != nil {
+				t.Fatalf("failed to write response: %v", err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	n := NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/")
+	n.SetTweaksDBIDs("demo-db-id", dbID)
+
+	updated, err := n.MoveReadyMixTweaksToWorkForTrack(trackPageID)
+	if err != nil {
+		t.Fatalf("MoveReadyMixTweaksToWorkForTrack returned error: %v", err)
+	}
+
+	if updated != 2 {
+		t.Fatalf("expected 2 updated tweaks, got %d", updated)
+	}
+	if patched[firstTweak] != TweakMixStatusInWork || patched[secondTweak] != TweakMixStatusInWork {
+		t.Fatalf("unexpected patched statuses: %#v", patched)
+	}
+}
