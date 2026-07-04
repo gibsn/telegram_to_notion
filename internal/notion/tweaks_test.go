@@ -591,7 +591,7 @@ func TestLoadReadyMixTweaksForTrack(t *testing.T) {
 		}
 		statusFilter := andFilters[1].(map[string]interface{})
 		status := statusFilter["status"].(map[string]interface{})
-		if status["equals"] != TweakMixStatusReady {
+		if status["equals"] != TweakMixStatusReadyForWork {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -682,7 +682,7 @@ func TestMoveReadyMixTweaksToWorkForTrack(t *testing.T) {
 				return
 			}
 			status := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
-			if status["equals"] != TweakMixStatusReady {
+			if status["equals"] != TweakMixStatusReadyForWork {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}

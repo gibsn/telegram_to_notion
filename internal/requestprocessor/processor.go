@@ -337,6 +337,7 @@ func parseTracksCommand(message commandCommon) (bool, error) {
 }
 
 type commandHandler func(commandCommon) (string, error)
+type commandResponseHandler func(commandCommon) (commandResponse, error)
 
 type commandResponse struct {
 	text     string
@@ -401,37 +402,44 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 		return commandResponse{}, err
 	}
 
-	var reply string
-	var document *fixespdf.Document
+	var response commandResponse
 
 	switch message.command {
 	case "/task":
-		reply, err = withErrorReply(message, p.processTask)
+		response.text, err = withErrorReply(message, p.processTask)
 	case "/agenda":
-		reply, err = withErrorReply(message, p.processAgenda)
+		response.text, err = withErrorReply(message, p.processAgenda)
 	case "/deadline":
-		reply, err = withErrorReply(message, p.processDeadline)
+		response.text, err = withErrorReply(message, p.processDeadline)
 	case "/done":
-		reply, err = withErrorReply(message, p.processDone)
+		response.text, err = withErrorReply(message, p.processDone)
 	case "/tasks":
-		reply, err = withErrorReply(message, p.processTasks)
+		response.text, err = withErrorReply(message, p.processTasks)
 	case "/tracks":
-		reply, err = withErrorReply(message, p.processTracks)
+		response.text, err = withErrorReply(message, p.processTracks)
 	case "/tweak":
 		switch {
 		case isTweakRenderCommand(message):
-			reply, document, err = p.processTweakRenderWithErrorReply(message)
+			response, err = withUsageErrorReply(
+				message,
+				"/tweak render $track $iteration_number",
+				p.processTweakRenderResponse,
+			)
 		case isTweakToWorkCommand(message):
-			reply, err = p.processTweakToWorkWithErrorReply(message)
+			response, err = withUsageErrorReply(
+				message,
+				"/tweak towork $track",
+				p.processTweakToWorkResponse,
+			)
 		default:
-			reply, err = withErrorReply(message, p.processTweak)
+			response.text, err = withErrorReply(message, p.processTweak)
 		}
 	default:
 		err = errUnknownCommand
-		reply = "🖕🖕🖕"
+		response.text = "🖕🖕🖕"
 	}
 
-	return commandResponse{text: reply, document: document}, err
+	return response, err
 }
 
 func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
@@ -489,6 +497,23 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 	}
 
 	return reply, err
+}
+
+func withUsageErrorReply(
+	message commandCommon,
+	usage string,
+	cb commandResponseHandler,
+) (commandResponse, error) {
+	response, err := cb(message)
+	if err == nil {
+		return response, nil
+	}
+
+	if !errors.Is(err, errInvalidCommand) {
+		return commandResponse{text: err.Error()}, err
+	}
+
+	return commandResponse{text: fmt.Sprintf("%s\n\nUsage:\n%s", err.Error(), usage)}, err
 }
 
 func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
@@ -799,37 +824,6 @@ func parseTweakToWorkCommand(message commandCommon) (*TweakToWorkRequest, error)
 	return &TweakToWorkRequest{TrackName: trackName}, nil
 }
 
-func (p *RequestProcessor) processTweakRenderWithErrorReply(
-	message commandCommon,
-) (string, *fixespdf.Document, error) {
-	reply, doc, err := p.processTweakRender(message)
-	if err == nil {
-		return reply, doc, nil
-	}
-
-	if !errors.Is(err, errInvalidCommand) {
-		return err.Error(), nil, err
-	}
-
-	return fmt.Sprintf(
-		"%s\n\nUsage:\n/tweak render $track $iteration_number",
-		err.Error(),
-	), nil, err
-}
-
-func (p *RequestProcessor) processTweakToWorkWithErrorReply(message commandCommon) (string, error) {
-	reply, err := p.processTweakToWork(message)
-	if err == nil {
-		return reply, nil
-	}
-
-	if !errors.Is(err, errInvalidCommand) {
-		return err.Error(), err
-	}
-
-	return fmt.Sprintf("%s\n\nUsage:\n/tweak towork $track", err.Error()), err
-}
-
 func (p *RequestProcessor) processTweakRender(
 	message commandCommon,
 ) (string, *fixespdf.Document, error) {
@@ -879,6 +873,13 @@ func (p *RequestProcessor) processTweakRender(
 	return tweakRenderCaption(req.TrackName, trackPageID, len(tweaks)), doc, nil
 }
 
+func (p *RequestProcessor) processTweakRenderResponse(
+	message commandCommon,
+) (commandResponse, error) {
+	reply, doc, err := p.processTweakRender(message)
+	return commandResponse{text: reply, document: doc}, err
+}
+
 func (p *RequestProcessor) processTweakToWork(message commandCommon) (string, error) {
 	req, err := parseTweakToWorkCommand(message)
 	if err != nil {
@@ -913,6 +914,13 @@ func (p *RequestProcessor) processTweakToWork(message commandCommon) (string, er
 		trackLinkFromPageID(trackPageID),
 		html.EscapeString(req.TrackName),
 	), nil
+}
+
+func (p *RequestProcessor) processTweakToWorkResponse(
+	message commandCommon,
+) (commandResponse, error) {
+	reply, err := p.processTweakToWork(message)
+	return commandResponse{text: reply}, err
 }
 
 func tweakRenderCaption(trackName, trackPageID string, tweaksCount int) string {

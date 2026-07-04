@@ -17,9 +17,9 @@ const (
 
 // Tweak status constants for mix tweaks
 const (
-	TweakMixStatusAnalysis = "Анализ"
-	TweakMixStatusReady    = "Готово к работе"
-	TweakMixStatusInWork   = "В работе"
+	TweakMixStatusAnalysis     = "Анализ"
+	TweakMixStatusReadyForWork = "Готово к работе"
+	TweakMixStatusInWork       = "В работе"
 )
 
 // Track status constants for "In progress" group
@@ -368,7 +368,7 @@ func (n *Notion) loadReadyMixTweakPagesForTrack(trackPageID string) ([]mixTweakP
 				{
 					"property": "Статус",
 					"status": map[string]string{
-						"equals": TweakMixStatusReady,
+						"equals": TweakMixStatusReadyForWork,
 					},
 				},
 			},

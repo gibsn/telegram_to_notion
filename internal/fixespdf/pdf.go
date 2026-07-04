@@ -97,6 +97,10 @@ type fontPair struct {
 }
 
 func resolveFonts() (fontPair, error) {
+	if fromEnv, ok := fontPairFromEnv(); ok {
+		return fromEnv, nil
+	}
+
 	candidates := []fontPair{
 		{
 			regular: "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -115,6 +119,18 @@ func resolveFonts() (fontPair, error) {
 	}
 
 	return fontPair{}, fmt.Errorf("could not find a TTF font with Cyrillic support")
+}
+
+func fontPairFromEnv() (fontPair, bool) {
+	regular := os.Getenv("FIXESPDF_REGULAR_FONT")
+	bold := os.Getenv("FIXESPDF_BOLD_FONT")
+	if regular == "" || bold == "" {
+		return fontPair{}, false
+	}
+	if !fileExists(regular) || !fileExists(bold) {
+		return fontPair{}, false
+	}
+	return fontPair{regular: regular, bold: bold}, true
 }
 
 func fileExists(path string) bool {
