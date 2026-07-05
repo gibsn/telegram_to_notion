@@ -6,9 +6,11 @@ import (
 	"html"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gibsn/telegram_to_notion/internal/fixespdf"
 	"github.com/gibsn/telegram_to_notion/internal/notion"
 	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 	"github.com/gibsn/telegram_to_notion/internal/trackscache"
@@ -335,6 +337,12 @@ func parseTracksCommand(message commandCommon) (bool, error) {
 }
 
 type commandHandler func(commandCommon) (string, error)
+type commandResponseHandler func(commandCommon) (commandResponse, error)
+
+type commandResponse struct {
+	text     string
+	document *fixespdf.Document
+}
 
 func (p *RequestProcessor) ProcessRequests() {
 	u := tgbotapi.NewUpdate(0)
@@ -354,7 +362,7 @@ func (p *RequestProcessor) ProcessRequests() {
 			)
 		}
 
-		reply, err := p.processRequest(update)
+		response, err := p.processRequest(update)
 		if err != nil {
 			if errors.Is(err, errNotACommand) {
 				// Ignore non-commands silently
@@ -363,7 +371,21 @@ func (p *RequestProcessor) ProcessRequests() {
 			log.Printf("Got an invalid message from %s: %v", update.Message.From.UserName, err)
 		}
 
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
+		if response.document != nil {
+			doc := tgbotapi.NewDocument(update.Message.Chat.ID, tgbotapi.FileBytes{
+				Name:  response.document.FileName,
+				Bytes: response.document.Bytes,
+			})
+			doc.Caption = response.text
+			doc.ParseMode = "HTML"
+			doc.ReplyToMessageID = update.Message.MessageID
+			if _, err := p.bot.Send(doc); err != nil {
+				log.Printf("Could not send document to Telegram: %v", err)
+			}
+			continue
+		}
+
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, response.text)
 		msg.ParseMode = "HTML"
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
@@ -374,35 +396,50 @@ func (p *RequestProcessor) ProcessRequests() {
 	}
 }
 
-func (p *RequestProcessor) processRequest(update tgbotapi.Update) (string, error) {
+func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandResponse, error) {
 	message, err := p.parseAndValidateTelegramRequest(update)
 	if err != nil {
-		return "", err
+		return commandResponse{}, err
 	}
 
-	var reply string
+	var response commandResponse
 
 	switch message.command {
 	case "/task":
-		reply, err = withErrorReply(message, p.processTask)
+		response.text, err = withErrorReply(message, p.processTask)
 	case "/agenda":
-		reply, err = withErrorReply(message, p.processAgenda)
+		response.text, err = withErrorReply(message, p.processAgenda)
 	case "/deadline":
-		reply, err = withErrorReply(message, p.processDeadline)
+		response.text, err = withErrorReply(message, p.processDeadline)
 	case "/done":
-		reply, err = withErrorReply(message, p.processDone)
+		response.text, err = withErrorReply(message, p.processDone)
 	case "/tasks":
-		reply, err = withErrorReply(message, p.processTasks)
+		response.text, err = withErrorReply(message, p.processTasks)
 	case "/tracks":
-		reply, err = withErrorReply(message, p.processTracks)
+		response.text, err = withErrorReply(message, p.processTracks)
 	case "/tweak":
-		reply, err = withErrorReply(message, p.processTweak)
+		switch {
+		case isTweakRenderCommand(message):
+			response, err = withUsageErrorReply(
+				message,
+				"/tweak render $track $iteration_number",
+				p.processTweakRenderResponse,
+			)
+		case isTweakToWorkCommand(message):
+			response, err = withUsageErrorReply(
+				message,
+				"/tweak towork $track",
+				p.processTweakToWorkResponse,
+			)
+		default:
+			response.text, err = withErrorReply(message, p.processTweak)
+		}
 	default:
 		err = errUnknownCommand
-		reply = "🖕🖕🖕"
+		response.text = "🖕🖕🖕"
 	}
 
-	return reply, err
+	return response, err
 }
 
 func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
@@ -452,12 +489,31 @@ func withErrorReply(message commandCommon, cb commandHandler) (string, error) {
 				"/tweak demo|mix $track\n"+
 				"$edit_name\n"+
 				"[start_time [end_time]] (time format as 0:05 or 01:10)\n"+
-				"[description]\n",
+				"[description]\n\n"+
+				"/tweak render $track $iteration_number\n"+
+				"/tweak towork $track\n",
 			err.Error(),
 		)
 	}
 
 	return reply, err
+}
+
+func withUsageErrorReply(
+	message commandCommon,
+	usage string,
+	cb commandResponseHandler,
+) (commandResponse, error) {
+	response, err := cb(message)
+	if err == nil {
+		return response, nil
+	}
+
+	if !errors.Is(err, errInvalidCommand) {
+		return commandResponse{text: err.Error()}, err
+	}
+
+	return commandResponse{text: fmt.Sprintf("%s\n\nUsage:\n%s", err.Error(), usage)}, err
 }
 
 func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
@@ -650,6 +706,15 @@ type TweakRequest struct {
 	Description string
 }
 
+type TweakRenderRequest struct {
+	TrackName string
+	Iteration int
+}
+
+type TweakToWorkRequest struct {
+	TrackName string
+}
+
 // nolint: gocyclo
 func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakRequest, error) {
 	if strings.TrimSpace(message.restOfMessage) == "" {
@@ -714,6 +779,169 @@ func (p *RequestProcessor) parseTweakCommand(message commandCommon) (*TweakReque
 	}
 
 	return req, nil
+}
+
+func isTweakRenderCommand(message commandCommon) bool {
+	parts := strings.Fields(message.restOfMessage)
+	return len(parts) > 0 && strings.EqualFold(parts[0], "render")
+}
+
+func isTweakToWorkCommand(message commandCommon) bool {
+	parts := strings.Fields(message.restOfMessage)
+	return len(parts) > 0 && strings.EqualFold(parts[0], "towork")
+}
+
+func parseTweakRenderCommand(message commandCommon) (*TweakRenderRequest, error) {
+	parts := strings.Fields(strings.TrimSpace(message.restOfMessage))
+	if len(parts) < 3 || !strings.EqualFold(parts[0], "render") {
+		return nil, fmt.Errorf("invalid body")
+	}
+
+	iteration, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil || iteration <= 0 {
+		return nil, fmt.Errorf("invalid iteration number")
+	}
+
+	trackName := strings.Join(parts[1:len(parts)-1], " ")
+	if strings.TrimSpace(trackName) == "" {
+		return nil, fmt.Errorf("track name is empty")
+	}
+
+	return &TweakRenderRequest{TrackName: trackName, Iteration: iteration}, nil
+}
+
+func parseTweakToWorkCommand(message commandCommon) (*TweakToWorkRequest, error) {
+	parts := strings.Fields(strings.TrimSpace(message.restOfMessage))
+	if len(parts) < 2 || !strings.EqualFold(parts[0], "towork") {
+		return nil, fmt.Errorf("invalid body")
+	}
+
+	trackName := strings.Join(parts[1:], " ")
+	if strings.TrimSpace(trackName) == "" {
+		return nil, fmt.Errorf("track name is empty")
+	}
+
+	return &TweakToWorkRequest{TrackName: trackName}, nil
+}
+
+func (p *RequestProcessor) processTweakRender(
+	message commandCommon,
+) (string, *fixespdf.Document, error) {
+	req, err := parseTweakRenderCommand(message)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tracksCache == nil {
+		return "", nil, fmt.Errorf("tracks cache is not initialized")
+	}
+
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
+		return fmt.Sprintf(
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
+		), nil, nil
+	}
+
+	tweaks, err := p.notion.LoadReadyMixTweaksForTrack(trackPageID)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load ready tweaks: %w", err)
+	}
+	if len(tweaks) == 0 {
+		return fmt.Sprintf("No tweaks found for track \"%s\"", req.TrackName), nil, nil
+	}
+
+	rows := make([]fixespdf.Row, 0, len(tweaks))
+	for _, tweak := range tweaks {
+		rows = append(rows, fixespdf.Row{
+			Summary:     tweak.Summary,
+			TrackPart:   tweak.TrackPart,
+			Start:       tweak.Start,
+			End:         tweak.End,
+			Explanation: tweak.Explanation,
+			Author:      tweak.Author,
+		})
+	}
+
+	doc, err := fixespdf.Build(req.TrackName, req.Iteration, rows)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to build PDF: %w", err)
+	}
+
+	return tweakRenderCaption(req.TrackName, trackPageID, len(tweaks)), doc, nil
+}
+
+func (p *RequestProcessor) processTweakRenderResponse(
+	message commandCommon,
+) (commandResponse, error) {
+	reply, doc, err := p.processTweakRender(message)
+	return commandResponse{text: reply, document: doc}, err
+}
+
+func (p *RequestProcessor) processTweakToWork(message commandCommon) (string, error) {
+	req, err := parseTweakToWorkCommand(message)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidCommand, err)
+	}
+
+	if p.tracksCache == nil {
+		return "", fmt.Errorf("tracks cache is not initialized")
+	}
+
+	trackPageID, exists := p.tracksCache.GetTrackID(req.TrackName)
+	if !exists {
+		trackNames := p.tracksCache.GetTrackNames()
+		return fmt.Sprintf(
+			"Track \"%s\" does not exist. Choose from:\n%s",
+			req.TrackName, strings.Join(trackNames, "\n"),
+		), nil
+	}
+
+	updated, err := p.notion.MoveReadyMixTweaksToWorkForTrack(trackPageID)
+	if err != nil {
+		return "", fmt.Errorf("failed to move ready tweaks to work: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Sprintf("No ready tweaks found for track \"%s\"", req.TrackName), nil
+	}
+
+	return fmt.Sprintf(
+		"Moved %d %s for <a href=\"%s\">%s</a> to work",
+		updated,
+		tweaksWord(updated),
+		trackLinkFromPageID(trackPageID),
+		html.EscapeString(req.TrackName),
+	), nil
+}
+
+func (p *RequestProcessor) processTweakToWorkResponse(
+	message commandCommon,
+) (commandResponse, error) {
+	reply, err := p.processTweakToWork(message)
+	return commandResponse{text: reply}, err
+}
+
+func tweakRenderCaption(trackName, trackPageID string, tweaksCount int) string {
+	return fmt.Sprintf(
+		"Generated %d %s for <a href=\"%s\">%s</a>",
+		tweaksCount,
+		tweaksWord(tweaksCount),
+		trackLinkFromPageID(trackPageID),
+		html.EscapeString(trackName),
+	)
+}
+
+func tweaksWord(count int) string {
+	if count == 1 {
+		return "tweak"
+	}
+	return "tweaks"
+}
+
+func trackLinkFromPageID(pageID string) string {
+	return "https://www.notion.so/" + strings.ReplaceAll(pageID, "-", "")
 }
 
 func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
