@@ -107,8 +107,24 @@ func resolveFonts() (fontPair, error) {
 			bold:    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
 		},
 		{
+			regular: "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+			bold:    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+		},
+		{
 			regular: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 			bold:    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+		},
+		{
+			regular: "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+			bold:    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+		},
+		{
+			regular: "/usr/share/fonts/truetype/lato/Lato-Regular.ttf",
+			bold:    "/usr/share/fonts/truetype/lato/Lato-Bold.ttf",
+		},
+		{
+			regular: "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+			bold:    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
 		},
 	}
 
