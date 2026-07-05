@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir="${REPO_DIR:-/home/ai/telegram_to_notion}"
+repo_dir="${REPO_DIR:-/home/telegram_to_notion/telegram_to_notion}"
 remote="${UPDATE_REMOTE:-origin}"
 branch="${UPDATE_BRANCH:-main}"
 service="${SERVICE_NAME:-telegram_to_notion.service}"
@@ -64,6 +64,11 @@ remote_head="$(as_repo_user git rev-parse "$remote/$branch")"
 
 if [[ "$old_head" == "$remote_head" ]]; then
 	echo "No changes in $remote/$branch"
+	exit 0
+fi
+
+if as_repo_user git merge-base --is-ancestor "$remote_head" "$old_head"; then
+	echo "Local HEAD already contains $remote/$branch"
 	exit 0
 fi
 

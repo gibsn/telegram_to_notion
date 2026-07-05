@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec /home/ai/telegram_to_notion/bin/telegram_to_notion \
+app_dir="${APP_DIR:-/home/telegram_to_notion/telegram_to_notion}"
+
+exec "$app_dir/bin/telegram_to_notion" \
 	-telegram_token="${TELEGRAM_TOKEN:?TELEGRAM_TOKEN is required}" \
 	-notion_token="${NOTION_TOKEN:?NOTION_TOKEN is required}" \
 	-tasks_db="${TASKS_DB:?TASKS_DB is required}" \
