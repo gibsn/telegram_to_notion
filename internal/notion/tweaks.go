@@ -328,6 +328,19 @@ func (n *Notion) LoadReadyMixTweaksForTrack(trackPageID string) ([]RenderTweak, 
 	return tweaks, nil
 }
 
+func (n *Notion) CountUnreadyMixTweaksForTrack(trackPageID string) (int, error) {
+	pages, err := n.loadMixTweakPagesForTrack(
+		trackPageID,
+		"does_not_equal",
+		TweakMixStatusReadyForWork,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(pages), nil
+}
+
 func (n *Notion) MoveReadyMixTweaksToWorkForTrack(trackPageID string) (int, error) {
 	pages, err := n.loadReadyMixTweakPagesForTrack(trackPageID)
 	if err != nil {
@@ -349,6 +362,14 @@ type mixTweakPage struct {
 }
 
 func (n *Notion) loadReadyMixTweakPagesForTrack(trackPageID string) ([]mixTweakPage, error) {
+	return n.loadMixTweakPagesForTrack(trackPageID, "equals", TweakMixStatusReadyForWork)
+}
+
+func (n *Notion) loadMixTweakPagesForTrack(
+	trackPageID string,
+	statusFilterOperator string,
+	status string,
+) ([]mixTweakPage, error) {
 	if n.tweaksMixDBID == "" {
 		return nil, fmt.Errorf("tweaks mix DB ID is not set")
 	}
@@ -368,7 +389,7 @@ func (n *Notion) loadReadyMixTweakPagesForTrack(trackPageID string) ([]mixTweakP
 				{
 					"property": "Статус",
 					"status": map[string]string{
-						"equals": TweakMixStatusReadyForWork,
+						statusFilterOperator: status,
 					},
 				},
 			},
