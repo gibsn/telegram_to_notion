@@ -681,10 +681,29 @@ func TestCountUnreadyMixTweaksForTrack(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		status := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
-		if status["equals"] != TweakMixStatusAnalysis {
+		orFilters := andFilters[1].(map[string]interface{})["or"].([]interface{})
+		if len(orFilters) != 2 {
 			w.WriteHeader(http.StatusBadRequest)
 			return
+		}
+		expectedStatuses := map[string]bool{
+			TweakMixStatusAnalysis: false,
+			TweakMixStatusDeferred: false,
+		}
+		for _, rawFilter := range orFilters {
+			status := rawFilter.(map[string]interface{})["status"].(map[string]interface{})
+			statusName := status["equals"].(string)
+			if _, ok := expectedStatuses[statusName]; !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			expectedStatuses[statusName] = true
+		}
+		for _, found := range expectedStatuses {
+			if !found {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

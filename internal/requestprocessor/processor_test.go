@@ -870,9 +870,24 @@ func TestProcessTweakRender(t *testing.T) {
 			andFilters := filter["and"].([]interface{})
 			relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
 			assert.Equal(t, trackID, relation["contains"])
-			statusFilter := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
+			statusFilter := andFilters[1].(map[string]interface{})
 
-			if statusFilter["equals"] == notion.TweakMixStatusAnalysis {
+			if rawOrFilters, ok := statusFilter["or"].([]interface{}); ok {
+				assert.Len(t, rawOrFilters, 2)
+				expectedStatuses := map[string]bool{
+					notion.TweakMixStatusAnalysis: false,
+					notion.TweakMixStatusDeferred: false,
+				}
+				for _, rawFilter := range rawOrFilters {
+					status := rawFilter.(map[string]interface{})["status"].(map[string]interface{})
+					statusName := status["equals"].(string)
+					_, exists := expectedStatuses[statusName]
+					assert.True(t, exists)
+					expectedStatuses[statusName] = true
+				}
+				for _, found := range expectedStatuses {
+					assert.True(t, found)
+				}
 				w.Header().Set("Content-Type", "application/json")
 				err = json.NewEncoder(w).Encode(map[string]interface{}{
 					"results": []map[string]interface{}{
@@ -883,7 +898,8 @@ func TestProcessTweakRender(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			assert.Equal(t, notion.TweakMixStatusReadyForWork, statusFilter["equals"])
+			status := statusFilter["status"].(map[string]interface{})
+			assert.Equal(t, notion.TweakMixStatusReadyForWork, status["equals"])
 
 			w.Header().Set("Content-Type", "application/json")
 			err = json.NewEncoder(w).Encode(map[string]interface{}{
