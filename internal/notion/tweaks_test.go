@@ -651,6 +651,86 @@ func TestLoadReadyMixTweaksForTrack(t *testing.T) {
 	}
 }
 
+func TestCountUnreadyMixTweaksForTrack(t *testing.T) {
+	const (
+		dbID        = "mix-db-id"
+		trackPageID = "track-page-id"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectedPath := path.Join("databases", dbID, "query")
+		if r.Method != http.MethodPost || r.URL.Path != "/"+expectedPath {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		filter := payload["filter"].(map[string]interface{})
+		andFilters := filter["and"].([]interface{})
+		if len(andFilters) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
+		if relation["contains"] != trackPageID {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		orFilters := andFilters[1].(map[string]interface{})["or"].([]interface{})
+		if len(orFilters) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		expectedStatuses := map[string]bool{
+			TweakMixStatusAnalysis: false,
+			TweakMixStatusDeferred: false,
+		}
+		for _, rawFilter := range orFilters {
+			status := rawFilter.(map[string]interface{})["status"].(map[string]interface{})
+			statusName := status["equals"].(string)
+			if _, ok := expectedStatuses[statusName]; !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			expectedStatuses[statusName] = true
+		}
+		for _, found := range expectedStatuses {
+			if !found {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": "first-unready-tweak"},
+				{"id": "second-unready-tweak"},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	n := NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/")
+	n.SetTweaksDBIDs("demo-db-id", dbID)
+
+	count, err := n.CountUnreadyMixTweaksForTrack(trackPageID)
+	if err != nil {
+		t.Fatalf("CountUnreadyMixTweaksForTrack returned error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 unready tweaks, got %d", count)
+	}
+}
+
 func TestMoveReadyMixTweaksToWorkForTrack(t *testing.T) {
 	const (
 		dbID        = "mix-db-id"

@@ -853,6 +853,11 @@ func (p *RequestProcessor) processTweakRender(
 		return fmt.Sprintf("No tweaks found for track \"%s\"", req.TrackName), nil, nil
 	}
 
+	unreadyTweaksCount, err := p.notion.CountUnreadyMixTweaksForTrack(trackPageID)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to count unready tweaks: %w", err)
+	}
+
 	rows := make([]fixespdf.Row, 0, len(tweaks))
 	for _, tweak := range tweaks {
 		rows = append(rows, fixespdf.Row{
@@ -870,7 +875,7 @@ func (p *RequestProcessor) processTweakRender(
 		return "", nil, fmt.Errorf("failed to build PDF: %w", err)
 	}
 
-	return tweakRenderCaption(req.TrackName, trackPageID, len(tweaks)), doc, nil
+	return tweakRenderCaption(req.TrackName, trackPageID, len(tweaks), unreadyTweaksCount), doc, nil
 }
 
 func (p *RequestProcessor) processTweakRenderResponse(
@@ -923,13 +928,14 @@ func (p *RequestProcessor) processTweakToWorkResponse(
 	return commandResponse{text: reply}, err
 }
 
-func tweakRenderCaption(trackName, trackPageID string, tweaksCount int) string {
+func tweakRenderCaption(trackName, trackPageID string, tweaksCount, unreadyTweaksCount int) string {
 	return fmt.Sprintf(
-		"Generated %d %s for <a href=\"%s\">%s</a>",
+		"Generated %d %s for <a href=\"%s\">%s</a>\nUnready tweaks left: %d",
 		tweaksCount,
 		tweaksWord(tweaksCount),
 		trackLinkFromPageID(trackPageID),
 		html.EscapeString(trackName),
+		unreadyTweaksCount,
 	)
 }
 

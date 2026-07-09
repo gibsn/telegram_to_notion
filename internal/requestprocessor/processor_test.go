@@ -870,6 +870,36 @@ func TestProcessTweakRender(t *testing.T) {
 			andFilters := filter["and"].([]interface{})
 			relation := andFilters[0].(map[string]interface{})["relation"].(map[string]interface{})
 			assert.Equal(t, trackID, relation["contains"])
+			statusFilter := andFilters[1].(map[string]interface{})
+
+			if rawOrFilters, ok := statusFilter["or"].([]interface{}); ok {
+				assert.Len(t, rawOrFilters, 2)
+				expectedStatuses := map[string]bool{
+					notion.TweakMixStatusAnalysis: false,
+					notion.TweakMixStatusDeferred: false,
+				}
+				for _, rawFilter := range rawOrFilters {
+					status := rawFilter.(map[string]interface{})["status"].(map[string]interface{})
+					statusName := status["equals"].(string)
+					_, exists := expectedStatuses[statusName]
+					assert.True(t, exists)
+					expectedStatuses[statusName] = true
+				}
+				for _, found := range expectedStatuses {
+					assert.True(t, found)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				err = json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": "unready-1"},
+						{"id": "unready-2"},
+					},
+				})
+				assert.NoError(t, err)
+				return
+			}
+			status := statusFilter["status"].(map[string]interface{})
+			assert.Equal(t, notion.TweakMixStatusReadyForWork, status["equals"])
 
 			w.Header().Set("Content-Type", "application/json")
 			err = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -920,7 +950,8 @@ func TestProcessTweakRender(t *testing.T) {
 	assert.Equal(
 		t,
 		"Generated 1 tweak for "+
-			"<a href=\"https://www.notion.so/trackpageid\">Track One</a>",
+			"<a href=\"https://www.notion.so/trackpageid\">Track One</a>\n"+
+			"Unready tweaks left: 2",
 		reply,
 	)
 	assert.NotNil(t, doc)
@@ -943,7 +974,7 @@ func TestTweakRenderCaption(t *testing.T) {
 			trackID:   "aaaaaaaa-1234-1234-1234-aaaaaaaaaaaa",
 			wantResult: "Generated 1 tweak for " +
 				"<a href=\"https://www.notion.so/aaaaaaaa123412341234aaaaaaaaaaaa\">" +
-				"Track &lt;One&gt;</a>",
+				"Track &lt;One&gt;</a>\nUnready tweaks left: 3",
 		},
 		{
 			name:      "two tweaks",
@@ -951,7 +982,7 @@ func TestTweakRenderCaption(t *testing.T) {
 			trackName: "Track Two",
 			trackID:   "track-2",
 			wantResult: "Generated 2 tweaks for " +
-				"<a href=\"https://www.notion.so/track2\">Track Two</a>",
+				"<a href=\"https://www.notion.so/track2\">Track Two</a>\nUnready tweaks left: 3",
 		},
 		{
 			name:      "five tweaks",
@@ -959,7 +990,7 @@ func TestTweakRenderCaption(t *testing.T) {
 			trackName: "Track Five",
 			trackID:   "track-5",
 			wantResult: "Generated 5 tweaks for " +
-				"<a href=\"https://www.notion.so/track5\">Track Five</a>",
+				"<a href=\"https://www.notion.so/track5\">Track Five</a>\nUnready tweaks left: 3",
 		},
 		{
 			name:      "eleven tweaks",
@@ -967,13 +998,13 @@ func TestTweakRenderCaption(t *testing.T) {
 			trackName: "Track Eleven",
 			trackID:   "track-11",
 			wantResult: "Generated 11 tweaks for " +
-				"<a href=\"https://www.notion.so/track11\">Track Eleven</a>",
+				"<a href=\"https://www.notion.so/track11\">Track Eleven</a>\nUnready tweaks left: 3",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tweakRenderCaption(tt.trackName, tt.trackID, tt.count)
+			got := tweakRenderCaption(tt.trackName, tt.trackID, tt.count, 3)
 
 			assert.Equal(t, tt.wantResult, got)
 		})
