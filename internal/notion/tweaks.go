@@ -331,8 +331,8 @@ func (n *Notion) LoadReadyMixTweaksForTrack(trackPageID string) ([]RenderTweak, 
 func (n *Notion) CountUnreadyMixTweaksForTrack(trackPageID string) (int, error) {
 	pages, err := n.loadMixTweakPagesForTrack(
 		trackPageID,
-		"does_not_equal",
-		TweakMixStatusReadyForWork,
+		"equals",
+		TweakMixStatusAnalysis,
 	)
 	if err != nil {
 		return 0, err

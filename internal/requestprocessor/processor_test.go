@@ -872,7 +872,7 @@ func TestProcessTweakRender(t *testing.T) {
 			assert.Equal(t, trackID, relation["contains"])
 			statusFilter := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
 
-			if statusFilter["does_not_equal"] == notion.TweakMixStatusReadyForWork {
+			if statusFilter["equals"] == notion.TweakMixStatusAnalysis {
 				w.Header().Set("Content-Type", "application/json")
 				err = json.NewEncoder(w).Encode(map[string]interface{}{
 					"results": []map[string]interface{}{

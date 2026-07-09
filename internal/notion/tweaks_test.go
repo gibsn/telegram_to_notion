@@ -682,7 +682,7 @@ func TestCountUnreadyMixTweaksForTrack(t *testing.T) {
 			return
 		}
 		status := andFilters[1].(map[string]interface{})["status"].(map[string]interface{})
-		if status["does_not_equal"] != TweakMixStatusReadyForWork {
+		if status["equals"] != TweakMixStatusAnalysis {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
