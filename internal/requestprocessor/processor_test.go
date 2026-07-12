@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/notion"
+	"github.com/gibsn/telegram_to_notion/internal/taskscache"
 	"github.com/gibsn/telegram_to_notion/internal/trackscache"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -435,6 +436,61 @@ func TestParseTasksCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProcessTasksIncludesStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{
+					"id": "12345678-1234-1234-1234-123456789abc",
+					"properties": map[string]interface{}{
+						"Задача": map[string]interface{}{
+							"title": []map[string]interface{}{
+								{"plain_text": "Ship status in tasks"},
+							},
+						},
+						"Исполнитель": map[string]interface{}{
+							"People": []map[string]interface{}{
+								{"name": "Kirill", "id": "7439e2ca-75f8-4024-b170-620ef7ed08b1"},
+							},
+						},
+						"Статус": map[string]interface{}{
+							"select": map[string]interface{}{
+								"name": notion.StatusNew,
+							},
+						},
+						"Дедлайн": map[string]interface{}{
+							"Date": map[string]interface{}{
+								"start": "2026-07-12",
+							},
+						},
+					},
+				},
+			},
+		})
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/")
+
+	p := NewRequestProcessor(n, "", nil)
+	p.SetTasksCache(taskscache.NewTasksCache(n, "tasks-db-id", time.Minute))
+
+	reply, err := p.processTasks(commandCommon{fromUserName: "gibsn"})
+
+	assert.NoError(t, err)
+	assert.Contains(
+		t,
+		reply,
+		"1. <a href=\"https://www.notion.so/12345678123412341234123456789abc\">"+
+			"Ship status in tasks</a>",
+	)
+	assert.Contains(t, reply, "(Status: "+notion.StatusNew+")")
+	assert.Contains(t, reply, "(Deadline: 2026-07-12)")
 }
 
 func TestParseTracksCommand(t *testing.T) {
