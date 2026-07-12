@@ -52,6 +52,11 @@ func TestLoadTasks(t *testing.T) {
 									"start": "2025-12-31",
 								},
 							},
+							"Статус": map[string]interface{}{
+								"select": map[string]interface{}{
+									"name": StatusNew,
+								},
+							},
 						},
 					},
 				},
@@ -334,13 +339,46 @@ func TestParseTask(t *testing.T) {
 							Start string `json:"start"`
 						}{Start: "2025-12-31"},
 					},
+					"Статус": {
+						Select: &struct {
+							Name string `json:"name"`
+						}{Name: StatusNew},
+					},
 				},
 			},
 			expected: Task{
 				Title:     "Single Assignee Task",
 				Assignees: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
+				Status:    StatusNew,
 				Deadline:  mustParse("2025-12-31"),
 				Link:      "https://www.notion.so/abcdef",
+			},
+		},
+		{
+			name: "valid task with status property",
+			input: loadResultEntry{
+				ID: "status-id",
+				Properties: loadResultProperty{
+					"Задача": {
+						Title: []struct {
+							PlainText string `json:"plain_text"`
+						}{{PlainText: "Status Task"}},
+					},
+					"Исполнитель": {
+						People: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
+					},
+					"Статус": {
+						Status: &struct {
+							Name string `json:"name"`
+						}{Name: "В работе"},
+					},
+				},
+			},
+			expected: Task{
+				Title:     "Status Task",
+				Assignees: []Assignee{{Name: "Alice", ID: "uuid-alice"}},
+				Status:    "В работе",
+				Link:      "https://www.notion.so/statusid",
 			},
 		},
 		{
@@ -476,6 +514,9 @@ func TestParseTask(t *testing.T) {
 			}
 			if !reflect.DeepEqual(task.Assignees, tt.expected.Assignees) {
 				t.Errorf("Assignees = %+v, want %+v", task.Assignees, tt.expected.Assignees)
+			}
+			if task.Status != tt.expected.Status {
+				t.Errorf("Status = %q, want %q", task.Status, tt.expected.Status)
 			}
 			if !task.Deadline.Equal(tt.expected.Deadline) {
 				t.Errorf("Deadline = %v, want %v", task.Deadline, tt.expected.Deadline)

@@ -637,6 +637,10 @@ func (p *RequestProcessor) processTasks(message commandCommon) (string, error) {
 	for i, task := range tasks {
 		reply.WriteString(fmt.Sprintf("%d. <a href=\"%s\">%s</a>", i+1, task.Link, task.Title))
 
+		if task.Status != "" {
+			reply.WriteString(fmt.Sprintf(" (Status: %s)", task.Status))
+		}
+
 		if !task.Deadline.IsZero() {
 			reply.WriteString(fmt.Sprintf(" (Deadline: %s)", task.Deadline.Format("2006-01-02")))
 		}
