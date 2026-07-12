@@ -28,6 +28,12 @@ type loadResultProperty map[string]struct {
 	Date   struct {
 		Start string `json:"start"`
 	} `json:"Date,omitempty"`
+	Select *struct {
+		Name string `json:"name"`
+	} `json:"select,omitempty"`
+	Status *struct {
+		Name string `json:"name"`
+	} `json:"status,omitempty"`
 }
 
 type loadResultEntry struct {
@@ -42,6 +48,7 @@ type loadResult struct {
 type Task struct {
 	Title     string
 	Assignees []Assignee
+	Status    string
 	Deadline  time.Time
 	Link      string
 }
@@ -95,11 +102,22 @@ func parseTask(result loadResultEntry) (Task, error) {
 		}
 	}
 
+	var status string
+	if statusField, ok := result.Properties["Статус"]; ok {
+		switch {
+		case statusField.Select != nil:
+			status = statusField.Select.Name
+		case statusField.Status != nil:
+			status = statusField.Status.Name
+		}
+	}
+
 	taskURL := notionURL + strings.ReplaceAll(result.ID, "-", "")
 
 	return Task{
 		Title:     taskName,
 		Assignees: assignees,
+		Status:    status,
 		Deadline:  deadline,
 		Link:      taskURL,
 	}, nil
@@ -158,8 +176,12 @@ func (n *Notion) LoadTasks(dbID string) ([]Task, error) {
 		}
 		if n.debug {
 			fmt.Printf(
-				"Task: %s\nAssignees: %s\nDeadline: %s\nURL: %s\n---",
-				taskParsed.Title, taskParsed.Assignees, taskParsed.Deadline, taskParsed.Link,
+				"Task: %s\nAssignees: %s\nStatus: %s\nDeadline: %s\nURL: %s\n---",
+				taskParsed.Title,
+				taskParsed.Assignees,
+				taskParsed.Status,
+				taskParsed.Deadline,
+				taskParsed.Link,
 			)
 		}
 
