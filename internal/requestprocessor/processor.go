@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gibsn/telegram_to_notion/internal/fixespdf"
@@ -43,15 +44,21 @@ type RequestProcessor struct {
 
 	tracksDBID string
 	timeRe     *regexp.Regexp
+
+	pendingTweaksMu sync.Mutex
+	pendingTweaks   map[tweakConversationKey]pendingTweak
+	now             func() time.Time
 }
 
 func NewRequestProcessor(
 	notion *notion.Notion, dbid string, bot *tgbotapi.BotAPI,
 ) *RequestProcessor {
 	p := &RequestProcessor{
-		notion:     notion,
-		notionDBID: dbid,
-		bot:        bot,
+		notion:        notion,
+		notionDBID:    dbid,
+		bot:           bot,
+		pendingTweaks: make(map[tweakConversationKey]pendingTweak),
+		now:           time.Now,
 	}
 
 	p.taskLinkParser = regexp.MustCompile(`https://www.notion.so/[\w\d\-]+`)
@@ -96,6 +103,7 @@ type commandCommon struct {
 	fromUserName       string
 	isPrivate          bool
 	chatID             int64
+	fromUserID         int64
 	repliedToMessageID int
 }
 
@@ -134,6 +142,7 @@ func (p *RequestProcessor) parseAndValidateTelegramRequest(update tgbotapi.Updat
 	}
 	command.isPrivate = update.Message.Chat.IsPrivate()
 	command.fromUserName = fromUserName
+	command.fromUserID = update.Message.From.ID
 	command.chatID = update.Message.Chat.ID
 
 	if p.debug {
@@ -340,8 +349,9 @@ type commandHandler func(commandCommon) (string, error)
 type commandResponseHandler func(commandCommon) (commandResponse, error)
 
 type commandResponse struct {
-	text     string
-	document *fixespdf.Document
+	text        string
+	document    *fixespdf.Document
+	replyMarkup *tgbotapi.InlineKeyboardMarkup
 }
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -349,6 +359,11 @@ func (p *RequestProcessor) ProcessRequests() {
 	u.Timeout = 60
 
 	for update := range p.bot.GetUpdatesChan(u) {
+		if update.CallbackQuery != nil {
+			p.processCallbackQuery(update.CallbackQuery)
+			continue
+		}
+
 		if update.Message == nil {
 			continue
 		}
@@ -362,7 +377,7 @@ func (p *RequestProcessor) ProcessRequests() {
 			)
 		}
 
-		response, err := p.processRequest(update)
+		response, err := p.processMessage(update)
 		if err != nil {
 			if errors.Is(err, errNotACommand) {
 				// Ignore non-commands silently
@@ -387,6 +402,9 @@ func (p *RequestProcessor) ProcessRequests() {
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, response.text)
 		msg.ParseMode = "HTML"
+		if response.replyMarkup != nil {
+			msg.ReplyMarkup = *response.replyMarkup
+		}
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
 
@@ -394,6 +412,15 @@ func (p *RequestProcessor) ProcessRequests() {
 			log.Printf("Could not send message to Telegram: %v", err)
 		}
 	}
+}
+
+func (p *RequestProcessor) processMessage(update tgbotapi.Update) (commandResponse, error) {
+	response, err := p.processRequest(update)
+	if !errors.Is(err, errNotACommand) {
+		return response, err
+	}
+
+	return p.processPendingTweakReply(update.Message)
 }
 
 func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandResponse, error) {
@@ -417,8 +444,12 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 		response.text, err = withErrorReply(message, p.processTasks)
 	case "/tracks":
 		response.text, err = withErrorReply(message, p.processTracks)
+	case "/cancel":
+		response.text = p.processCancel(message)
 	case "/tweak":
 		switch {
+		case strings.TrimSpace(message.restOfMessage) == "":
+			response = newTweakMenuResponse()
 		case isTweakRenderCommand(message):
 			response, err = withUsageErrorReply(
 				message,

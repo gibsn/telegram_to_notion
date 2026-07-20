@@ -19,6 +19,7 @@ func botCommands() []tgbotapi.BotCommand {
 		{Command: "tasks", Description: "Показать активные задачи"},
 		{Command: "tracks", Description: "Показать треки правок"},
 		{Command: "tweak", Description: "Создать или обработать правку"},
+		{Command: "cancel", Description: "Отменить текущее действие"},
 	}
 }
 
