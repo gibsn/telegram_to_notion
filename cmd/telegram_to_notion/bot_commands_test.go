@@ -29,7 +29,7 @@ func TestRegisterBotCommands(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, botCommands(), config.Commands)
 	assert.Contains(t, config.Commands, tgbotapi.BotCommand{
-		Command: "cancel", Description: "Отменить текущее действие",
+		Command: "cancel", Description: "Cancel the current action",
 	})
 }
 

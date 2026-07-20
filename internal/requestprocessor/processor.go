@@ -32,7 +32,7 @@ type RequestProcessor struct {
 	bot          *tgbotapi.BotAPI
 	nameResolver *UserResolver
 	tasksCache   *taskscache.Cache
-	tracksCache  *trackscache.Cache
+	tracksCache  tracksCache
 
 	allowedToCreate map[string]bool
 
@@ -48,6 +48,12 @@ type RequestProcessor struct {
 	pendingTweaksMu sync.Mutex
 	pendingTweaks   map[tweakConversationKey]pendingTweak
 	now             func() time.Time
+}
+
+type tracksCache interface {
+	GetTrackID(string) (string, bool)
+	GetTrackName(string) (string, bool)
+	GetTrackNames() []string
 }
 
 func NewRequestProcessor(

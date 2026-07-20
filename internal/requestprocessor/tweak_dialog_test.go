@@ -19,6 +19,28 @@ type telegramRequest struct {
 	form   url.Values
 }
 
+type fakeTracksCache struct {
+	tracks map[string]string
+}
+
+func (f *fakeTracksCache) GetTrackID(name string) (string, bool) {
+	id, ok := f.tracks[name]
+	return id, ok
+}
+
+func (f *fakeTracksCache) GetTrackName(id string) (string, bool) {
+	for name, trackID := range f.tracks {
+		if trackID == id {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func (f *fakeTracksCache) GetTrackNames() []string {
+	return []string{"Track One"}
+}
+
 func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 	var requests []telegramRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +77,7 @@ func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 	bot, err := tgbotapi.NewBotAPIWithAPIEndpoint("test-token", server.URL+"/bot%s/%s")
 	require.NoError(t, err)
 	p := NewRequestProcessor(nil, "", bot)
+	p.tracksCache = &fakeTracksCache{tracks: map[string]string{"Track One": "track-id"}}
 	p.processCallbackQuery(&tgbotapi.CallbackQuery{
 		ID:   "callback-id",
 		From: &tgbotapi.User{ID: 20, UserName: "gibsn"},
@@ -69,8 +92,24 @@ func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 	assert.True(t, strings.HasSuffix(requests[1].method, "/answerCallbackQuery"))
 	assert.Equal(t, "callback-id", requests[1].form.Get("callback_query_id"))
 	assert.True(t, strings.HasSuffix(requests[2].method, "/sendMessage"))
-	assert.Contains(t, requests[2].form.Get("text"), "номер итерации")
-	assert.Contains(t, requests[2].form.Get("reply_markup"), `"force_reply":true`)
+	assert.Contains(t, requests[2].form.Get("text"), "Choose a track")
+	assert.Contains(t, requests[2].form.Get("reply_markup"), "Track One")
+
+	p.processCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "track-callback-id",
+		From: &tgbotapi.User{ID: 20, UserName: "gibsn"},
+		Data: "twtrk:render:track-id",
+		Message: &tgbotapi.Message{
+			MessageID: 99,
+			Chat:      &tgbotapi.Chat{ID: 30, Type: "private"},
+		},
+	})
+
+	require.Len(t, requests, 5)
+	assert.True(t, strings.HasSuffix(requests[3].method, "/answerCallbackQuery"))
+	assert.True(t, strings.HasSuffix(requests[4].method, "/sendMessage"))
+	assert.Contains(t, requests[4].form.Get("text"), "iteration number")
+	assert.Contains(t, requests[4].form.Get("reply_markup"), `"force_reply":true`)
 
 	reply := &tgbotapi.Message{
 		From:           &tgbotapi.User{ID: 20},
@@ -81,6 +120,7 @@ func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 	assert.True(t, found)
 	assert.False(t, expired)
 	assert.Equal(t, tweakActionRender, pending.action)
+	assert.Equal(t, "Track One", pending.trackName)
 }
 
 func TestProcessTweakWithoutArgumentsShowsMenu(t *testing.T) {
@@ -97,7 +137,7 @@ func TestProcessTweakWithoutArgumentsShowsMenu(t *testing.T) {
 	response, err := p.processRequest(update)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Выберите действие для /tweak:", response.text)
+	assert.Equal(t, "Choose an action for /tweak:", response.text)
 	require.NotNil(t, response.replyMarkup)
 	require.Len(t, response.replyMarkup.InlineKeyboard, 2)
 
@@ -134,10 +174,11 @@ func TestPendingTweakCommandBuildsExistingCommandFormat(t *testing.T) {
 	message := &tgbotapi.Message{
 		From: &tgbotapi.User{ID: 20, UserName: "Gibsn"},
 		Chat: &tgbotapi.Chat{ID: 30, Type: "group"},
-		Text: "track name\nedit name\n0:05 0:10\ndescription",
+		Text: "edit name\n0:05 0:10\ndescription",
 	}
 	pending := pendingTweak{
 		action:             tweakActionMix,
+		trackName:          "track name",
 		repliedToText:      "original message",
 		repliedToMessageID: 40,
 	}
@@ -189,10 +230,10 @@ func TestPendingTweakExpiresAndCanBeCancelled(t *testing.T) {
 	p.now = func() time.Time { return now }
 	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionDemo, promptMessageID: 40})
 
-	assert.Equal(t, "Действие отменено.", p.processCancel(commandCommon{chatID: 30, fromUserID: 20}))
+	assert.Equal(t, "Action cancelled.", p.processCancel(commandCommon{chatID: 30, fromUserID: 20}))
 	assert.Equal(
 		t,
-		"Нет активного действия.",
+		"There is no active action.",
 		p.processCancel(commandCommon{chatID: 30, fromUserID: 20}),
 	)
 
@@ -224,5 +265,12 @@ func TestParseTweakCallback(t *testing.T) {
 	_, ok := parseTweakCallback("tweak:unknown")
 	assert.False(t, ok)
 	_, ok = parseTweakCallback("other:render")
+	assert.False(t, ok)
+
+	action, trackID, ok := parseTweakTrackCallback("twtrk:mix:track-id")
+	assert.True(t, ok)
+	assert.Equal(t, tweakActionMix, action)
+	assert.Equal(t, "track-id", trackID)
+	_, _, ok = parseTweakTrackCallback("twtrk:unknown:track-id")
 	assert.False(t, ok)
 }

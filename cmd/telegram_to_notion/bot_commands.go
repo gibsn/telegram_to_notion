@@ -12,14 +12,14 @@ type telegramRequester interface {
 
 func botCommands() []tgbotapi.BotCommand {
 	return []tgbotapi.BotCommand{
-		{Command: "task", Description: "Создать задачу"},
-		{Command: "agenda", Description: "Создать пункт повестки"},
-		{Command: "deadline", Description: "Установить дедлайн задачи"},
-		{Command: "done", Description: "Завершить задачу"},
-		{Command: "tasks", Description: "Показать активные задачи"},
-		{Command: "tracks", Description: "Показать треки правок"},
-		{Command: "tweak", Description: "Создать или обработать правку"},
-		{Command: "cancel", Description: "Отменить текущее действие"},
+		{Command: "task", Description: "Create a task"},
+		{Command: "agenda", Description: "Create an agenda item"},
+		{Command: "deadline", Description: "Set a task deadline"},
+		{Command: "done", Description: "Complete a task"},
+		{Command: "tasks", Description: "Show active tasks"},
+		{Command: "tracks", Description: "Show tweak tracks"},
+		{Command: "tweak", Description: "Create or process a tweak"},
+		{Command: "cancel", Description: "Cancel the current action"},
 	}
 }
 
