@@ -45,8 +45,8 @@ type RequestProcessor struct {
 	tracksDBID string
 	timeRe     *regexp.Regexp
 
-	pendingTweaksMu sync.Mutex
-	pendingTweaks   map[tweakConversationKey]pendingTweak
+	pendingInputsMu sync.Mutex
+	pendingInputs   map[conversationKey]pendingInput
 	now             func() time.Time
 }
 
@@ -63,7 +63,7 @@ func NewRequestProcessor(
 		notion:        notion,
 		notionDBID:    dbid,
 		bot:           bot,
-		pendingTweaks: make(map[tweakConversationKey]pendingTweak),
+		pendingInputs: make(map[conversationKey]pendingInput),
 		now:           time.Now,
 	}
 
@@ -358,6 +358,8 @@ type commandResponse struct {
 	text        string
 	document    *fixespdf.Document
 	replyMarkup *tgbotapi.InlineKeyboardMarkup
+	forceReply  *tgbotapi.ForceReply
+	pending     *pendingInput
 }
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -410,12 +412,21 @@ func (p *RequestProcessor) ProcessRequests() {
 		msg.ParseMode = "HTML"
 		if response.replyMarkup != nil {
 			msg.ReplyMarkup = *response.replyMarkup
+		} else if response.forceReply != nil {
+			msg.ReplyMarkup = *response.forceReply
 		}
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
 
-		if _, err := p.bot.Send(msg); err != nil {
+		sent, err := p.bot.Send(msg)
+		if err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
+			continue
+		}
+		if response.pending != nil {
+			pending := *response.pending
+			pending.promptMessageID = sent.MessageID
+			p.setPendingInput(update.Message.Chat.ID, update.Message.From.ID, pending)
 		}
 	}
 }
@@ -426,8 +437,8 @@ func (p *RequestProcessor) processMessage(update tgbotapi.Update) (commandRespon
 		return response, err
 	}
 
-	if p.hasPendingTweakReply(update.Message) {
-		return p.processPendingTweakReply(update.Message)
+	if p.hasPendingInputReply(update.Message) {
+		return p.processPendingInputReply(update.Message)
 	}
 
 	return commandResponse{}, errNotACommand
@@ -443,11 +454,23 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 
 	switch message.command {
 	case "/task":
-		response.text, err = withErrorReply(message, p.processTask)
+		if hasNoCommandArguments(message) {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processTask)
+		}
 	case "/agenda":
-		response.text, err = withErrorReply(message, p.processAgenda)
+		if hasNoCommandArguments(message) {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processAgenda)
+		}
 	case "/deadline":
-		response.text, err = withErrorReply(message, p.processDeadline)
+		if hasNoCommandArguments(message) && p.extractTaskLink(message) != "" {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processDeadline)
+		}
 	case "/done":
 		response.text, err = withErrorReply(message, p.processDone)
 	case "/tasks":
