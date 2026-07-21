@@ -157,19 +157,22 @@ func TestIsTweakMenuCommand(t *testing.T) {
 	assert.False(t, isTweakMenuCommand(commandCommon{restOfMessage: "render Track 1"}))
 }
 
-func TestTryProcessPendingTweakReplyWithoutPendingAction(t *testing.T) {
+func TestHasPendingTweakReply(t *testing.T) {
 	p := NewRequestProcessor(nil, "", nil)
 	message := &tgbotapi.Message{
-		From: &tgbotapi.User{ID: 20, UserName: "gibsn"},
-		Chat: &tgbotapi.Chat{ID: 30, Type: "private"},
-		Text: "ordinary message",
+		From:           &tgbotapi.User{ID: 20, UserName: "gibsn"},
+		Chat:           &tgbotapi.Chat{ID: 30, Type: "private"},
+		Text:           "ordinary message",
+		ReplyToMessage: &tgbotapi.Message{MessageID: 40},
 	}
 
-	response, handled, err := p.tryProcessPendingTweakReply(message)
+	assert.False(t, p.hasPendingTweakReply(message))
 
-	require.NoError(t, err)
-	assert.False(t, handled)
-	assert.Empty(t, response.text)
+	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionRender, promptMessageID: 40})
+	assert.True(t, p.hasPendingTweakReply(message))
+
+	message.ReplyToMessage.MessageID = 41
+	assert.False(t, p.hasPendingTweakReply(message))
 }
 
 func TestManualTweakCommandStillUsesExistingParser(t *testing.T) {

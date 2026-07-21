@@ -331,15 +331,29 @@ func (p *RequestProcessor) takePendingTweak(message *tgbotapi.Message) (pendingT
 	return pending, true, false
 }
 
-func (p *RequestProcessor) tryProcessPendingTweakReply(
+func (p *RequestProcessor) hasPendingTweakReply(message *tgbotapi.Message) bool {
+	if message == nil || message.Chat == nil || message.From == nil || message.ReplyToMessage == nil {
+		return false
+	}
+
+	key := tweakConversationKey{chatID: message.Chat.ID, userID: message.From.ID}
+
+	p.pendingTweaksMu.Lock()
+	defer p.pendingTweaksMu.Unlock()
+
+	pending, ok := p.pendingTweaks[key]
+	return ok && pending.promptMessageID == message.ReplyToMessage.MessageID
+}
+
+func (p *RequestProcessor) processPendingTweakReply(
 	message *tgbotapi.Message,
-) (commandResponse, bool, error) {
+) (commandResponse, error) {
 	pending, found, expired := p.takePendingTweak(message)
 	if !found {
-		return commandResponse{}, false, nil
+		return commandResponse{}, errNotACommand
 	}
 	if expired {
-		return commandResponse{text: "This action has expired. Send /tweak again."}, true, nil
+		return commandResponse{text: "This action has expired. Send /tweak again."}, nil
 	}
 
 	command := pendingTweakCommand(pending, message)
@@ -347,19 +361,17 @@ func (p *RequestProcessor) tryProcessPendingTweakReply(
 	switch pending.action {
 	case tweakActionDemo, tweakActionMix:
 		text, err := withErrorReply(command, p.processTweak)
-		return commandResponse{text: text}, true, err
+		return commandResponse{text: text}, err
 	case tweakActionRender:
-		response, err := withUsageErrorReply(
+		return withUsageErrorReply(
 			command,
 			"$track $iteration_number",
 			p.processTweakRenderResponse,
 		)
-		return response, true, err
 	case tweakActionToWork:
-		response, err := withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
-		return response, true, err
+		return withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
 	default:
-		return commandResponse{}, true, errors.New("unknown pending tweak action")
+		return commandResponse{}, errors.New("unknown pending tweak action")
 	}
 }
 
