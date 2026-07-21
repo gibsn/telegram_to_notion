@@ -81,11 +81,12 @@ func TestLoadTracks(t *testing.T) { //nolint:gocyclo
 					t.Error("expected 'or' filter in request payload")
 				}
 
-				// Check that we have filters for all three "In progress" statuses
+				// Check that we have filters for all cached statuses.
 				expectedStatuses := map[string]bool{
 					TrackStatusDemo:      false,
 					TrackStatusRecording: false,
 					TrackStatusMixing:    false,
+					TrackStatusMixReady:  false,
 				}
 
 				for _, orFilter := range orFilters {

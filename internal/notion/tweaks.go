@@ -23,23 +23,25 @@ const (
 	TweakMixStatusInWork       = "В работе"
 )
 
-// Track status constants for "In progress" group
+// Track status constants included in the tracks cache.
 const (
 	TrackStatusDemo      = "Демка"
 	TrackStatusRecording = "Запись"
 	TrackStatusMixing    = "Сведение"
+	TrackStatusMixReady  = "Микс готов"
 )
 
-// createTracksInProgressFilter creates a filter for tracks with "In progress" statuses
-func createTracksInProgressFilter() map[string]interface{} {
-	inProgressStatuses := []string{
+// createCachedTracksFilter creates a filter for tracks available to bot commands.
+func createCachedTracksFilter() map[string]interface{} {
+	cachedStatuses := []string{
 		TrackStatusDemo,
 		TrackStatusRecording,
 		TrackStatusMixing,
+		TrackStatusMixReady,
 	}
 
-	orFilters := make([]map[string]interface{}, 0, len(inProgressStatuses))
-	for _, status := range inProgressStatuses {
+	orFilters := make([]map[string]interface{}, 0, len(cachedStatuses))
+	for _, status := range cachedStatuses {
 		orFilters = append(orFilters, map[string]interface{}{
 			"property": "Статус",
 			"status": map[string]string{
@@ -144,7 +146,7 @@ func (n *Notion) loadTrackPages(dbID string, filter map[string]interface{}) ([]T
 }
 
 func (n *Notion) LoadTrackPages(dbID string) ([]TrackPage, error) {
-	return n.loadTrackPages(dbID, createTracksInProgressFilter())
+	return n.loadTrackPages(dbID, createCachedTracksFilter())
 }
 
 func (n *Notion) LoadAllTrackPages(dbID string) ([]TrackPage, error) {
@@ -152,7 +154,7 @@ func (n *Notion) LoadAllTrackPages(dbID string) ([]TrackPage, error) {
 }
 
 // LoadTracks queries the tracks database and returns a list of track titles (property "Название")
-// Only returns tracks with status from "In progress" group: Демка, Запись, Сведение
+// Only returns tracks in statuses available to bot commands.
 func (n *Notion) LoadTracks(dbID string) (map[string]string, error) {
 	tracks, err := n.LoadTrackPages(dbID)
 	if err != nil {

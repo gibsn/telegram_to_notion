@@ -65,6 +65,10 @@ func main() {
 	}
 
 	log.Printf("Successfully connected to Telegram")
+	if err := registerBotCommands(bot); err != nil {
+		log.Fatalf("Could not register Telegram bot commands: %v", err)
+	}
+	log.Printf("Successfully registered Telegram bot commands")
 
 	notion := notion.NewNotion(notionToken)
 	cache := taskscache.NewTasksCache(notion, tasksDBID, tasksCachePeriod)

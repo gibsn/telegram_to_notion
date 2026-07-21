@@ -125,6 +125,28 @@ func TestGetTrackIDWithNilCache(t *testing.T) {
 	assert.Equal(t, false, exists)
 }
 
+func TestGetTrackName(t *testing.T) {
+	cache := &Cache{cache: map[string]string{"Song One": "id-1"}}
+
+	name, exists := cache.GetTrackName("id-1")
+	assert.Equal(t, "Song One", name)
+	assert.True(t, exists)
+
+	name, exists = cache.GetTrackName("missing")
+	assert.Empty(t, name)
+	assert.False(t, exists)
+}
+
+func TestGetTrackNamesSorted(t *testing.T) {
+	cache := &Cache{cache: map[string]string{
+		"Zebra": "id-1",
+		"alpha": "id-2",
+		"Bravo": "id-3",
+	}}
+
+	assert.Equal(t, []string{"alpha", "Bravo", "Zebra"}, cache.GetTrackNames())
+}
+
 func TestNewTracksCache(t *testing.T) {
 	// Test that NewTracksCache creates a properly initialized cache
 	cache := NewTracksCache(nil, "test-db-id", 5*time.Minute)

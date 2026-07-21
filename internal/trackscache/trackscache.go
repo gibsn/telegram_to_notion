@@ -3,6 +3,7 @@ package trackscache
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,19 @@ func (c *Cache) GetTrackID(trackName string) (string, bool) {
 	return "", false
 }
 
+func (c *Cache) GetTrackName(trackID string) (string, bool) {
+	c.cacheLock.RLock()
+	defer c.cacheLock.RUnlock()
+
+	for name, id := range c.cache {
+		if id == trackID {
+			return name, true
+		}
+	}
+
+	return "", false
+}
+
 func (c *Cache) GetTrackNames() []string {
 	c.cacheLock.RLock()
 	defer c.cacheLock.RUnlock()
@@ -94,6 +108,9 @@ func (c *Cache) GetTrackNames() []string {
 	for name := range c.cache {
 		names = append(names, name)
 	}
+	sort.Slice(names, func(i, j int) bool {
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
 	return names
 }
 
