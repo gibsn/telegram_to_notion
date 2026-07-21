@@ -426,11 +426,11 @@ func (p *RequestProcessor) processMessage(update tgbotapi.Update) (commandRespon
 		return response, err
 	}
 
-	if !p.hasPendingTweakReply(update.Message) {
-		return commandResponse{}, errNotACommand
+	if p.hasPendingTweakReply(update.Message) {
+		return p.processPendingTweakReply(update.Message)
 	}
 
-	return p.processPendingTweakReply(update.Message)
+	return commandResponse{}, errNotACommand
 }
 
 func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandResponse, error) {
