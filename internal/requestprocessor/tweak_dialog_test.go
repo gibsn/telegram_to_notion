@@ -151,6 +151,27 @@ func TestProcessTweakWithoutArgumentsShowsMenu(t *testing.T) {
 	assert.Equal(t, []string{"tweak:demo", "tweak:mix", "tweak:render", "tweak:towork"}, callbackData)
 }
 
+func TestIsTweakMenuCommand(t *testing.T) {
+	assert.True(t, isTweakMenuCommand(commandCommon{}))
+	assert.True(t, isTweakMenuCommand(commandCommon{restOfMessage: "  \n\t"}))
+	assert.False(t, isTweakMenuCommand(commandCommon{restOfMessage: "render Track 1"}))
+}
+
+func TestTryProcessPendingTweakReplyWithoutPendingAction(t *testing.T) {
+	p := NewRequestProcessor(nil, "", nil)
+	message := &tgbotapi.Message{
+		From: &tgbotapi.User{ID: 20, UserName: "gibsn"},
+		Chat: &tgbotapi.Chat{ID: 30, Type: "private"},
+		Text: "ordinary message",
+	}
+
+	response, handled, err := p.tryProcessPendingTweakReply(message)
+
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.Empty(t, response.text)
+}
+
 func TestManualTweakCommandStillUsesExistingParser(t *testing.T) {
 	p := NewRequestProcessor(nil, "", nil)
 	text := "/tweak render track invalid"

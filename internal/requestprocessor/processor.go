@@ -426,7 +426,12 @@ func (p *RequestProcessor) processMessage(update tgbotapi.Update) (commandRespon
 		return response, err
 	}
 
-	return p.processPendingTweakReply(update.Message)
+	response, handled, err := p.tryProcessPendingTweakReply(update.Message)
+	if !handled {
+		return commandResponse{}, errNotACommand
+	}
+
+	return response, err
 }
 
 func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandResponse, error) {
@@ -454,7 +459,7 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 		response.text = p.processCancel(message)
 	case "/tweak":
 		switch {
-		case strings.TrimSpace(message.restOfMessage) == "":
+		case isTweakMenuCommand(message):
 			response = newTweakMenuResponse()
 		case isTweakRenderCommand(message):
 			response, err = withUsageErrorReply(

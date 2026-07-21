@@ -59,6 +59,10 @@ func newTweakMenuResponse() commandResponse {
 	}
 }
 
+func isTweakMenuCommand(message commandCommon) bool {
+	return strings.TrimSpace(message.restOfMessage) == ""
+}
+
 func newTweakTrackMenuResponse(action tweakAction, cache tracksCache) (commandResponse, error) {
 	if cache == nil {
 		return commandResponse{}, errors.New("tracks cache is not initialized")
@@ -327,15 +331,15 @@ func (p *RequestProcessor) takePendingTweak(message *tgbotapi.Message) (pendingT
 	return pending, true, false
 }
 
-func (p *RequestProcessor) processPendingTweakReply(
+func (p *RequestProcessor) tryProcessPendingTweakReply(
 	message *tgbotapi.Message,
-) (commandResponse, error) {
+) (commandResponse, bool, error) {
 	pending, found, expired := p.takePendingTweak(message)
 	if !found {
-		return commandResponse{}, errNotACommand
+		return commandResponse{}, false, nil
 	}
 	if expired {
-		return commandResponse{text: "This action has expired. Send /tweak again."}, nil
+		return commandResponse{text: "This action has expired. Send /tweak again."}, true, nil
 	}
 
 	command := pendingTweakCommand(pending, message)
@@ -343,17 +347,19 @@ func (p *RequestProcessor) processPendingTweakReply(
 	switch pending.action {
 	case tweakActionDemo, tweakActionMix:
 		text, err := withErrorReply(command, p.processTweak)
-		return commandResponse{text: text}, err
+		return commandResponse{text: text}, true, err
 	case tweakActionRender:
-		return withUsageErrorReply(
+		response, err := withUsageErrorReply(
 			command,
 			"$track $iteration_number",
 			p.processTweakRenderResponse,
 		)
+		return response, true, err
 	case tweakActionToWork:
-		return withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
+		response, err := withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
+		return response, true, err
 	default:
-		return commandResponse{}, errors.New("unknown pending tweak action")
+		return commandResponse{}, true, errors.New("unknown pending tweak action")
 	}
 }
 
