@@ -108,6 +108,7 @@ type commandCommon struct {
 	repliedToEntities  []tgbotapi.MessageEntity
 	fromUserName       string
 	isPrivate          bool
+	explicitAssignees  bool
 	chatID             int64
 	fromUserID         int64
 	repliedToMessageID int
@@ -219,7 +220,7 @@ func parseTaskCommand(message commandCommon) (
 ) {
 	lines := strings.Split(message.restOfMessage, "\n")
 
-	if !message.isPrivate && len(lines) < 2 {
+	if (!message.isPrivate || message.explicitAssignees) && len(lines) < 2 {
 		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
@@ -234,7 +235,7 @@ func parseTaskCommand(message commandCommon) (
 	// the second line is the assignee if the message came from the public chat. if the
 	// message came from direct messages then the assignee is set to the sender
 	if len(lines) >= 2 {
-		if message.isPrivate {
+		if message.isPrivate && !message.explicitAssignees {
 			req.Description = strings.Join(lines[1:], "\n")
 		} else {
 			req.Assignees = strings.Fields(lines[1])
@@ -243,12 +244,12 @@ func parseTaskCommand(message commandCommon) (
 
 	// the third line is only present in public chats and is optional. it contains
 	// description if present
-	if len(lines) >= 3 && !message.isPrivate {
+	if len(lines) >= 3 && (!message.isPrivate || message.explicitAssignees) {
 		req.Description = strings.Join(lines[2:], "\n")
 	}
 
 	// set assignee to the sender if the message came from direct messages
-	if message.isPrivate {
+	if message.isPrivate && !message.explicitAssignees {
 		req.Assignees = []string{"@" + message.fromUserName}
 	}
 

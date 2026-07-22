@@ -74,9 +74,6 @@ func newCommandInputResponse(message commandCommon) commandResponse {
 func commandInputPrompt(message commandCommon) (text, placeholder string) {
 	switch message.command {
 	case "/task":
-		if message.isPrivate {
-			return "Send a reply with:\ntask name\n[description]", "task name and optional description"
-		}
 		return "Send a reply with:\ntask name\n@assignee1 @assignee2 ...\n[description]",
 			"task, assignees, description"
 	case "/agenda":
@@ -451,6 +448,7 @@ func pendingInputCommand(pending pendingInput, message *tgbotapi.Message) comman
 			fromUserName:       strings.ToLower(message.From.UserName),
 			fromUserID:         message.From.ID,
 			isPrivate:          message.Chat.IsPrivate(),
+			explicitAssignees:  pending.command == "/task",
 			chatID:             message.Chat.ID,
 			repliedToMessageID: pending.repliedToMessageID,
 		}
