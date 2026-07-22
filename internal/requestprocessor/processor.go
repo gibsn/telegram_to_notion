@@ -45,8 +45,8 @@ type RequestProcessor struct {
 	tracksDBID string
 	timeRe     *regexp.Regexp
 
-	pendingTweaksMu sync.Mutex
-	pendingTweaks   map[tweakConversationKey]pendingTweak
+	pendingInputsMu sync.Mutex
+	pendingInputs   map[conversationKey]pendingInput
 	now             func() time.Time
 }
 
@@ -63,7 +63,7 @@ func NewRequestProcessor(
 		notion:        notion,
 		notionDBID:    dbid,
 		bot:           bot,
-		pendingTweaks: make(map[tweakConversationKey]pendingTweak),
+		pendingInputs: make(map[conversationKey]pendingInput),
 		now:           time.Now,
 	}
 
@@ -108,6 +108,7 @@ type commandCommon struct {
 	repliedToEntities  []tgbotapi.MessageEntity
 	fromUserName       string
 	isPrivate          bool
+	explicitAssignees  bool
 	chatID             int64
 	fromUserID         int64
 	repliedToMessageID int
@@ -219,7 +220,7 @@ func parseTaskCommand(message commandCommon) (
 ) {
 	lines := strings.Split(message.restOfMessage, "\n")
 
-	if !message.isPrivate && len(lines) < 2 {
+	if (!message.isPrivate || message.explicitAssignees) && len(lines) < 2 {
 		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
@@ -234,7 +235,7 @@ func parseTaskCommand(message commandCommon) (
 	// the second line is the assignee if the message came from the public chat. if the
 	// message came from direct messages then the assignee is set to the sender
 	if len(lines) >= 2 {
-		if message.isPrivate {
+		if message.isPrivate && !message.explicitAssignees {
 			req.Description = strings.Join(lines[1:], "\n")
 		} else {
 			req.Assignees = strings.Fields(lines[1])
@@ -243,12 +244,12 @@ func parseTaskCommand(message commandCommon) (
 
 	// the third line is only present in public chats and is optional. it contains
 	// description if present
-	if len(lines) >= 3 && !message.isPrivate {
+	if len(lines) >= 3 && (!message.isPrivate || message.explicitAssignees) {
 		req.Description = strings.Join(lines[2:], "\n")
 	}
 
 	// set assignee to the sender if the message came from direct messages
-	if message.isPrivate {
+	if message.isPrivate && !message.explicitAssignees {
 		req.Assignees = []string{"@" + message.fromUserName}
 	}
 
@@ -358,6 +359,8 @@ type commandResponse struct {
 	text        string
 	document    *fixespdf.Document
 	replyMarkup *tgbotapi.InlineKeyboardMarkup
+	forceReply  *tgbotapi.ForceReply
+	pending     *pendingInput
 }
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -410,12 +413,21 @@ func (p *RequestProcessor) ProcessRequests() {
 		msg.ParseMode = "HTML"
 		if response.replyMarkup != nil {
 			msg.ReplyMarkup = *response.replyMarkup
+		} else if response.forceReply != nil {
+			msg.ReplyMarkup = *response.forceReply
 		}
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
 
-		if _, err := p.bot.Send(msg); err != nil {
+		sent, err := p.bot.Send(msg)
+		if err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
+			continue
+		}
+		if response.pending != nil {
+			pending := *response.pending
+			pending.promptMessageID = sent.MessageID
+			p.setPendingInput(update.Message.Chat.ID, update.Message.From.ID, pending)
 		}
 	}
 }
@@ -426,8 +438,8 @@ func (p *RequestProcessor) processMessage(update tgbotapi.Update) (commandRespon
 		return response, err
 	}
 
-	if p.hasPendingTweakReply(update.Message) {
-		return p.processPendingTweakReply(update.Message)
+	if p.hasPendingInputReply(update.Message) {
+		return p.processPendingInputReply(update.Message)
 	}
 
 	return commandResponse{}, errNotACommand
@@ -443,11 +455,23 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 
 	switch message.command {
 	case "/task":
-		response.text, err = withErrorReply(message, p.processTask)
+		if hasNoCommandArguments(message) {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processTask)
+		}
 	case "/agenda":
-		response.text, err = withErrorReply(message, p.processAgenda)
+		if hasNoCommandArguments(message) {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processAgenda)
+		}
 	case "/deadline":
-		response.text, err = withErrorReply(message, p.processDeadline)
+		if hasNoCommandArguments(message) && p.extractTaskLink(message) != "" {
+			response = newCommandInputResponse(message)
+		} else {
+			response.text, err = withErrorReply(message, p.processDeadline)
+		}
 	case "/done":
 		response.text, err = withErrorReply(message, p.processDone)
 	case "/tasks":

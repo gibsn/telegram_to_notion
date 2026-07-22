@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	tweakConversationTTL     = 10 * time.Minute
+	conversationTTL          = 10 * time.Minute
 	tweakCallbackPrefix      = "tweak:"
 	tweakTrackCallbackPrefix = "twtrk:"
 	telegramCallbackDataMax  = 64
@@ -26,12 +26,13 @@ const (
 	tweakActionToWork tweakAction = "towork"
 )
 
-type tweakConversationKey struct {
+type conversationKey struct {
 	chatID int64
 	userID int64
 }
 
-type pendingTweak struct {
+type pendingInput struct {
+	command            string
 	action             tweakAction
 	trackName          string
 	promptMessageID    int
@@ -39,6 +40,49 @@ type pendingTweak struct {
 	repliedToText      string
 	repliedToEntities  []tgbotapi.MessageEntity
 	repliedToMessageID int
+}
+
+func hasNoCommandArguments(message commandCommon) bool {
+	return strings.TrimSpace(message.restOfMessage) == ""
+}
+
+func newCommandInputResponse(message commandCommon) commandResponse {
+	prompt, placeholder := commandInputPrompt(message)
+	if !message.isPrivate && message.fromUserName != "" {
+		prompt = fmt.Sprintf("@%s, %s", message.fromUserName, prompt)
+	}
+	prompt += "\n\nSend /cancel to cancel."
+
+	forceReply := tgbotapi.ForceReply{
+		ForceReply:            true,
+		InputFieldPlaceholder: placeholder,
+		Selective:             !message.isPrivate && message.fromUserName != "",
+	}
+
+	return commandResponse{
+		text:       prompt,
+		forceReply: &forceReply,
+		pending: &pendingInput{
+			command:            message.command,
+			repliedToText:      message.repliedToText,
+			repliedToEntities:  message.repliedToEntities,
+			repliedToMessageID: message.repliedToMessageID,
+		},
+	}
+}
+
+func commandInputPrompt(message commandCommon) (text, placeholder string) {
+	switch message.command {
+	case "/task":
+		return "Send a reply with:\ntask name\n@assignee1 @assignee2 ...\n[description]",
+			"task, assignees, description"
+	case "/agenda":
+		return "Send the agenda as a reply.", "agenda"
+	case "/deadline":
+		return "Send the deadline as a reply in YYYY-MM-DD format.", "YYYY-MM-DD"
+	default:
+		return "Send the command parameters as a reply.", "parameters"
+	}
 }
 
 func newTweakMenuResponse() commandResponse {
@@ -255,7 +299,7 @@ func (p *RequestProcessor) processTweakTrackCallback(
 		return
 	}
 
-	pending := pendingTweak{
+	pending := pendingInput{
 		action:          action,
 		trackName:       trackName,
 		promptMessageID: sent.MessageID,
@@ -268,7 +312,7 @@ func (p *RequestProcessor) processTweakTrackCallback(
 		pending.repliedToMessageID = originalMessage.MessageID
 	}
 
-	p.setPendingTweak(callback.Message.Chat.ID, callback.From.ID, pending)
+	p.setPendingInput(callback.Message.Chat.ID, callback.From.ID, pending)
 }
 
 func (p *RequestProcessor) sendCallbackResponse(
@@ -293,70 +337,89 @@ func (p *RequestProcessor) answerCallback(callbackID, text string) {
 	}
 }
 
-func (p *RequestProcessor) setPendingTweak(chatID, userID int64, pending pendingTweak) {
-	p.pendingTweaksMu.Lock()
-	defer p.pendingTweaksMu.Unlock()
+func (p *RequestProcessor) setPendingInput(chatID, userID int64, pending pendingInput) {
+	p.pendingInputsMu.Lock()
+	defer p.pendingInputsMu.Unlock()
 
 	now := p.now()
-	for key, current := range p.pendingTweaks {
+	for key, current := range p.pendingInputs {
 		if !current.expiresAt.After(now) {
-			delete(p.pendingTweaks, key)
+			delete(p.pendingInputs, key)
 		}
 	}
 
-	pending.expiresAt = now.Add(tweakConversationTTL)
-	p.pendingTweaks[tweakConversationKey{chatID: chatID, userID: userID}] = pending
+	pending.expiresAt = now.Add(conversationTTL)
+	p.pendingInputs[conversationKey{chatID: chatID, userID: userID}] = pending
 }
 
-func (p *RequestProcessor) takePendingTweak(message *tgbotapi.Message) (pendingTweak, bool, bool) {
+func (p *RequestProcessor) takePendingInput(message *tgbotapi.Message) (pendingInput, bool, bool) {
 	if message == nil || message.Chat == nil || message.From == nil || message.ReplyToMessage == nil {
-		return pendingTweak{}, false, false
+		return pendingInput{}, false, false
 	}
 
-	key := tweakConversationKey{chatID: message.Chat.ID, userID: message.From.ID}
+	key := conversationKey{chatID: message.Chat.ID, userID: message.From.ID}
 
-	p.pendingTweaksMu.Lock()
-	defer p.pendingTweaksMu.Unlock()
+	p.pendingInputsMu.Lock()
+	defer p.pendingInputsMu.Unlock()
 
-	pending, ok := p.pendingTweaks[key]
+	pending, ok := p.pendingInputs[key]
 	if !ok || pending.promptMessageID != message.ReplyToMessage.MessageID {
-		return pendingTweak{}, false, false
+		return pendingInput{}, false, false
 	}
 
-	delete(p.pendingTweaks, key)
+	delete(p.pendingInputs, key)
 	if !pending.expiresAt.After(p.now()) {
-		return pendingTweak{}, true, true
+		return pendingInput{}, true, true
 	}
 
 	return pending, true, false
 }
 
-func (p *RequestProcessor) hasPendingTweakReply(message *tgbotapi.Message) bool {
+func (p *RequestProcessor) hasPendingInputReply(message *tgbotapi.Message) bool {
 	if message == nil || message.Chat == nil || message.From == nil || message.ReplyToMessage == nil {
 		return false
 	}
 
-	key := tweakConversationKey{chatID: message.Chat.ID, userID: message.From.ID}
+	key := conversationKey{chatID: message.Chat.ID, userID: message.From.ID}
 
-	p.pendingTweaksMu.Lock()
-	defer p.pendingTweaksMu.Unlock()
+	p.pendingInputsMu.Lock()
+	defer p.pendingInputsMu.Unlock()
 
-	pending, ok := p.pendingTweaks[key]
+	pending, ok := p.pendingInputs[key]
 	return ok && pending.promptMessageID == message.ReplyToMessage.MessageID
 }
 
-func (p *RequestProcessor) processPendingTweakReply(
+func (p *RequestProcessor) processPendingInputReply(
 	message *tgbotapi.Message,
 ) (commandResponse, error) {
-	pending, found, expired := p.takePendingTweak(message)
+	pending, found, expired := p.takePendingInput(message)
 	if !found {
 		return commandResponse{}, errNotACommand
 	}
 	if expired {
-		return commandResponse{text: "This action has expired. Send /tweak again."}, nil
+		command := pending.command
+		if command == "" {
+			command = "/tweak"
+		}
+		return commandResponse{text: "This action has expired. Send " + command + " again."}, nil
 	}
 
-	command := pendingTweakCommand(pending, message)
+	command := pendingInputCommand(pending, message)
+	if pending.command != "" {
+		var text string
+		var err error
+		switch pending.command {
+		case "/task":
+			text, err = withErrorReply(command, p.processTask)
+		case "/agenda":
+			text, err = withErrorReply(command, p.processAgenda)
+		case "/deadline":
+			text, err = withErrorReply(command, p.processDeadline)
+		default:
+			return commandResponse{}, errors.New("unknown pending command")
+		}
+		return commandResponse{text: text}, err
+	}
 
 	switch pending.action {
 	case tweakActionDemo, tweakActionMix:
@@ -375,7 +438,22 @@ func (p *RequestProcessor) processPendingTweakReply(
 	}
 }
 
-func pendingTweakCommand(pending pendingTweak, message *tgbotapi.Message) commandCommon {
+func pendingInputCommand(pending pendingInput, message *tgbotapi.Message) commandCommon {
+	if pending.command != "" {
+		return commandCommon{
+			command:            pending.command,
+			restOfMessage:      strings.TrimSpace(message.Text),
+			repliedToText:      pending.repliedToText,
+			repliedToEntities:  pending.repliedToEntities,
+			fromUserName:       strings.ToLower(message.From.UserName),
+			fromUserID:         message.From.ID,
+			isPrivate:          message.Chat.IsPrivate(),
+			explicitAssignees:  pending.command == "/task",
+			chatID:             message.Chat.ID,
+			repliedToMessageID: pending.repliedToMessageID,
+		}
+	}
+
 	separator := " "
 	if pending.action == tweakActionDemo || pending.action == tweakActionMix {
 		separator = "\n"
@@ -397,15 +475,15 @@ func pendingTweakCommand(pending pendingTweak, message *tgbotapi.Message) comman
 }
 
 func (p *RequestProcessor) processCancel(message commandCommon) string {
-	key := tweakConversationKey{chatID: message.chatID, userID: message.fromUserID}
+	key := conversationKey{chatID: message.chatID, userID: message.fromUserID}
 
-	p.pendingTweaksMu.Lock()
-	defer p.pendingTweaksMu.Unlock()
+	p.pendingInputsMu.Lock()
+	defer p.pendingInputsMu.Unlock()
 
-	if _, ok := p.pendingTweaks[key]; !ok {
+	if _, ok := p.pendingInputs[key]; !ok {
 		return "There is no active action."
 	}
 
-	delete(p.pendingTweaks, key)
+	delete(p.pendingInputs, key)
 	return "Action cancelled."
 }

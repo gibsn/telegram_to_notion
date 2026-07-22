@@ -116,7 +116,7 @@ func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 		Chat:           &tgbotapi.Chat{ID: 30},
 		ReplyToMessage: &tgbotapi.Message{MessageID: 99},
 	}
-	pending, found, expired := p.takePendingTweak(reply)
+	pending, found, expired := p.takePendingInput(reply)
 	assert.True(t, found)
 	assert.False(t, expired)
 	assert.Equal(t, tweakActionRender, pending.action)
@@ -166,13 +166,13 @@ func TestHasPendingTweakReply(t *testing.T) {
 		ReplyToMessage: &tgbotapi.Message{MessageID: 40},
 	}
 
-	assert.False(t, p.hasPendingTweakReply(message))
+	assert.False(t, p.hasPendingInputReply(message))
 
-	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionRender, promptMessageID: 40})
-	assert.True(t, p.hasPendingTweakReply(message))
+	p.setPendingInput(30, 20, pendingInput{action: tweakActionRender, promptMessageID: 40})
+	assert.True(t, p.hasPendingInputReply(message))
 
 	message.ReplyToMessage.MessageID = 41
-	assert.False(t, p.hasPendingTweakReply(message))
+	assert.False(t, p.hasPendingInputReply(message))
 }
 
 func TestManualTweakCommandStillUsesExistingParser(t *testing.T) {
@@ -200,14 +200,14 @@ func TestPendingTweakCommandBuildsExistingCommandFormat(t *testing.T) {
 		Chat: &tgbotapi.Chat{ID: 30, Type: "group"},
 		Text: "edit name\n0:05 0:10\ndescription",
 	}
-	pending := pendingTweak{
+	pending := pendingInput{
 		action:             tweakActionMix,
 		trackName:          "track name",
 		repliedToText:      "original message",
 		repliedToMessageID: 40,
 	}
 
-	command := pendingTweakCommand(pending, message)
+	command := pendingInputCommand(pending, message)
 
 	assert.Equal(t, "/tweak", command.command)
 	assert.Equal(t, "mix track name\nedit name\n0:05 0:10\ndescription", command.restOfMessage)
@@ -223,14 +223,14 @@ func TestPendingTweakLifecycle(t *testing.T) {
 	p := NewRequestProcessor(nil, "", nil)
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 	p.now = func() time.Time { return now }
-	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionRender, promptMessageID: 40})
+	p.setPendingInput(30, 20, pendingInput{action: tweakActionRender, promptMessageID: 40})
 
 	wrongReply := &tgbotapi.Message{
 		From:           &tgbotapi.User{ID: 20},
 		Chat:           &tgbotapi.Chat{ID: 30},
 		ReplyToMessage: &tgbotapi.Message{MessageID: 41},
 	}
-	_, found, expired := p.takePendingTweak(wrongReply)
+	_, found, expired := p.takePendingInput(wrongReply)
 	assert.False(t, found)
 	assert.False(t, expired)
 
@@ -239,12 +239,12 @@ func TestPendingTweakLifecycle(t *testing.T) {
 		Chat:           &tgbotapi.Chat{ID: 30},
 		ReplyToMessage: &tgbotapi.Message{MessageID: 40},
 	}
-	pending, found, expired := p.takePendingTweak(correctReply)
+	pending, found, expired := p.takePendingInput(correctReply)
 	assert.True(t, found)
 	assert.False(t, expired)
 	assert.Equal(t, tweakActionRender, pending.action)
 
-	_, found, _ = p.takePendingTweak(correctReply)
+	_, found, _ = p.takePendingInput(correctReply)
 	assert.False(t, found)
 }
 
@@ -252,7 +252,7 @@ func TestPendingTweakExpiresAndCanBeCancelled(t *testing.T) {
 	p := NewRequestProcessor(nil, "", nil)
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 	p.now = func() time.Time { return now }
-	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionDemo, promptMessageID: 40})
+	p.setPendingInput(30, 20, pendingInput{action: tweakActionDemo, promptMessageID: 40})
 
 	assert.Equal(t, "Action cancelled.", p.processCancel(commandCommon{chatID: 30, fromUserID: 20}))
 	assert.Equal(
@@ -261,15 +261,15 @@ func TestPendingTweakExpiresAndCanBeCancelled(t *testing.T) {
 		p.processCancel(commandCommon{chatID: 30, fromUserID: 20}),
 	)
 
-	p.setPendingTweak(30, 20, pendingTweak{action: tweakActionDemo, promptMessageID: 40})
-	now = now.Add(tweakConversationTTL)
+	p.setPendingInput(30, 20, pendingInput{action: tweakActionDemo, promptMessageID: 40})
+	now = now.Add(conversationTTL)
 	reply := &tgbotapi.Message{
 		From:           &tgbotapi.User{ID: 20},
 		Chat:           &tgbotapi.Chat{ID: 30},
 		ReplyToMessage: &tgbotapi.Message{MessageID: 40},
 	}
 
-	_, found, expired := p.takePendingTweak(reply)
+	_, found, expired := p.takePendingInput(reply)
 	assert.True(t, found)
 	assert.True(t, expired)
 }
