@@ -25,8 +25,8 @@ func TestCommandsWithoutArgumentsStartInputDialog(t *testing.T) {
 			text:            "/task",
 			wantCommand:     "/task",
 			chatType:        "private",
-			wantPrompt:      "@assignee1 @assignee2",
-			wantPlaceholder: "task, assignees, description",
+			wantPrompt:      "task name\n[description]",
+			wantPlaceholder: "task, description",
 		},
 		{
 			name:              "group task",
@@ -106,11 +106,11 @@ func TestDeadlineWithoutTaskReplyStillShowsUsageError(t *testing.T) {
 	assert.Contains(t, response.text, "Must be a reply to a message with task link")
 }
 
-func TestPendingPrivateTaskBuildsExplicitAssigneeFormat(t *testing.T) {
+func TestPendingPrivateTaskUsesSenderAsAssignee(t *testing.T) {
 	message := &tgbotapi.Message{
 		From: &tgbotapi.User{ID: 20, UserName: "Gibsn"},
 		Chat: &tgbotapi.Chat{ID: 30, Type: "private"},
-		Text: "Task name\n@gibsn\nDescription",
+		Text: "Task name\nDescription",
 	}
 	pending := pendingInput{
 		command:            "/task",
@@ -121,12 +121,12 @@ func TestPendingPrivateTaskBuildsExplicitAssigneeFormat(t *testing.T) {
 	command := pendingInputCommand(pending, message)
 
 	assert.Equal(t, "/task", command.command)
-	assert.Equal(t, "Task name\n@gibsn\nDescription", command.restOfMessage)
+	assert.Equal(t, "Task name\nDescription", command.restOfMessage)
 	assert.Equal(t, "gibsn", command.fromUserName)
 	assert.Equal(t, int64(20), command.fromUserID)
 	assert.Equal(t, int64(30), command.chatID)
 	assert.True(t, command.isPrivate)
-	assert.True(t, command.explicitAssignees)
+	assert.False(t, command.explicitAssignees)
 	assert.Equal(t, "original message", command.repliedToText)
 	assert.Equal(t, 40, command.repliedToMessageID)
 
