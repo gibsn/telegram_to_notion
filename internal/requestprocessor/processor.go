@@ -199,6 +199,27 @@ func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPriv
 	return link
 }
 
+func (p *RequestProcessor) appendReplyContext(description string, message commandCommon) string {
+	if message.repliedToText == "" {
+		return description
+	}
+
+	messageLink := p.createMessageLink(
+		message.chatID, message.repliedToMessageID, message.isPrivate,
+	)
+
+	if description != "" {
+		description += "\n\n"
+	}
+	description += "Ответ на сообщение: " + message.repliedToText
+
+	if messageLink != "" {
+		description += "\nСсылка на сообщение: " + messageLink
+	}
+
+	return description
+}
+
 func extractCommand(text string, entities []tgbotapi.MessageEntity) (commandCommon, error) {
 	// Only treat message as command if the first entity is a bot_command at offset 0
 	if len(entities) == 0 || entities[0].Type != "bot_command" || entities[0].Offset != 0 {
@@ -588,6 +609,7 @@ func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
 	}
 
 	req.NotionDBID = p.notionDBID
+	req.Description = p.appendReplyContext(req.Description, message)
 
 	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
 	if err != nil {
@@ -1047,21 +1069,7 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 	}
 
 	// Build explanation field with original description and replied message info
-	explanation := req.Description
-	if message.repliedToText != "" {
-		messageLink := p.createMessageLink(
-			message.chatID, message.repliedToMessageID, message.isPrivate,
-		)
-
-		if explanation != "" {
-			explanation += "\n\n"
-		}
-		explanation += "Ответ на сообщение: " + message.repliedToText
-
-		if messageLink != "" {
-			explanation += "\nСсылка на сообщение: " + messageLink
-		}
-	}
+	explanation := p.appendReplyContext(req.Description, message)
 
 	r := &notion.CreateTweakRequest{
 		Title:            req.EditName,

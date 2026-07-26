@@ -120,6 +120,25 @@ func TestCreateNotionTask(t *testing.T) {
 				if child["type"] != "paragraph" {
 					t.Errorf("expected child type 'paragraph', got %v", child["type"])
 				}
+				paragraph, ok := child["paragraph"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("expected paragraph child to be map")
+				}
+				richText, ok := paragraph["rich_text"].([]interface{})
+				if !ok || len(richText) != 1 {
+					t.Fatalf("expected rich_text array with 1 element")
+				}
+				richTextObject, ok := richText[0].(map[string]interface{})
+				if !ok {
+					t.Fatalf("expected rich_text object to be map")
+				}
+				descriptionText, ok := richTextObject["text"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("expected description text to be map")
+				}
+				if descriptionText["content"] != "Test description" {
+					t.Errorf("expected description in page body, got %v", descriptionText["content"])
+				}
 			},
 		},
 		{
