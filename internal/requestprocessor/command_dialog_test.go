@@ -25,8 +25,8 @@ func TestCommandsWithoutArgumentsStartInputDialog(t *testing.T) {
 			text:            "/task",
 			wantCommand:     "/task",
 			chatType:        "private",
-			wantPrompt:      "task name\n[description]",
-			wantPlaceholder: "task, description",
+			wantPrompt:      "[@assignee1 @assignee2 ...]",
+			wantPlaceholder: "task, optional assignees, description",
 		},
 		{
 			name:              "group task",
@@ -106,35 +106,58 @@ func TestDeadlineWithoutTaskReplyStillShowsUsageError(t *testing.T) {
 	assert.Contains(t, response.text, "Must be a reply to a message with task link")
 }
 
-func TestPendingPrivateTaskUsesSenderAsAssignee(t *testing.T) {
-	message := &tgbotapi.Message{
-		From: &tgbotapi.User{ID: 20, UserName: "Gibsn"},
-		Chat: &tgbotapi.Chat{ID: 30, Type: "private"},
-		Text: "Task name\nDescription",
+func TestPendingPrivateTaskSupportsOptionalAssignees(t *testing.T) {
+	tests := []struct {
+		name              string
+		text              string
+		expectedAssignees []string
+		expectedDesc      string
+	}{
+		{
+			name:              "sender is assignee by default",
+			text:              "Task name\nDescription",
+			expectedAssignees: []string{"@gibsn"},
+			expectedDesc:      "Description",
+		},
+		{
+			name:              "explicit assignee overrides sender",
+			text:              "Task name\n@alexander_zh\nDescription",
+			expectedAssignees: []string{"@alexander_zh"},
+			expectedDesc:      "Description",
+		},
 	}
-	pending := pendingInput{
-		command:            "/task",
-		repliedToText:      "original message",
-		repliedToMessageID: 40,
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			message := &tgbotapi.Message{
+				From: &tgbotapi.User{ID: 20, UserName: "Gibsn"},
+				Chat: &tgbotapi.Chat{ID: 30, Type: "private"},
+				Text: tt.text,
+			}
+			pending := pendingInput{
+				command:            "/task",
+				repliedToText:      "original message",
+				repliedToMessageID: 40,
+			}
+
+			command := pendingInputCommand(pending, message)
+
+			assert.Equal(t, "/task", command.command)
+			assert.Equal(t, tt.text, command.restOfMessage)
+			assert.Equal(t, "gibsn", command.fromUserName)
+			assert.Equal(t, int64(20), command.fromUserID)
+			assert.Equal(t, int64(30), command.chatID)
+			assert.True(t, command.isPrivate)
+			assert.Equal(t, "original message", command.repliedToText)
+			assert.Equal(t, 40, command.repliedToMessageID)
+
+			request, err := parseTaskCommand(command)
+			require.NoError(t, err)
+			assert.Equal(t, "Task name", request.TaskName)
+			assert.Equal(t, tt.expectedAssignees, request.Assignees)
+			assert.Equal(t, tt.expectedDesc, request.Description)
+		})
 	}
-
-	command := pendingInputCommand(pending, message)
-
-	assert.Equal(t, "/task", command.command)
-	assert.Equal(t, "Task name\nDescription", command.restOfMessage)
-	assert.Equal(t, "gibsn", command.fromUserName)
-	assert.Equal(t, int64(20), command.fromUserID)
-	assert.Equal(t, int64(30), command.chatID)
-	assert.True(t, command.isPrivate)
-	assert.False(t, command.explicitAssignees)
-	assert.Equal(t, "original message", command.repliedToText)
-	assert.Equal(t, 40, command.repliedToMessageID)
-
-	request, err := parseTaskCommand(command)
-	require.NoError(t, err)
-	assert.Equal(t, "Task name", request.TaskName)
-	assert.Equal(t, []string{"@gibsn"}, request.Assignees)
-	assert.Equal(t, "Description", request.Description)
 }
 
 func TestPendingCommandReplyIsHandledAsCommandInput(t *testing.T) {

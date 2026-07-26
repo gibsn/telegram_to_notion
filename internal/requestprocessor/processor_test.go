@@ -139,7 +139,7 @@ test_description`,
 			},
 		},
 		{
-			name: "private: assignee is present by mistake, so it goes to description",
+			name: "private: optional assignee is present",
 			input: `/task test_task
 @gibsn
 test_description`,
@@ -147,8 +147,21 @@ test_description`,
 			fromUserName: "testuser",
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
-				Assignees:   []string{"@testuser"},
-				Description: "@gibsn\ntest_description",
+				Assignees:   []string{"@gibsn"},
+				Description: "test_description",
+			},
+		},
+		{
+			name: "private: multiple optional assignees are present",
+			input: `/task test_task
+@gibsn @alexander_zh
+test_description`,
+			isPrivate:    true,
+			fromUserName: "testuser",
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   []string{"@gibsn", "@alexander_zh"},
+				Description: "test_description",
 			},
 		},
 	}
