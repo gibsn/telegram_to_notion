@@ -47,21 +47,14 @@ func hasNoCommandArguments(message commandCommon) bool {
 }
 
 func newCommandInputResponse(message commandCommon) commandResponse {
-	prompt, placeholder := commandInputPrompt(message)
+	prompt := commandInputPrompt(message)
 	if !message.isPrivate && message.fromUserName != "" {
 		prompt = fmt.Sprintf("@%s, %s", message.fromUserName, prompt)
 	}
 	prompt += "\n\nSend /cancel to cancel."
 
-	forceReply := tgbotapi.ForceReply{
-		ForceReply:            true,
-		InputFieldPlaceholder: placeholder,
-		Selective:             !message.isPrivate && message.fromUserName != "",
-	}
-
 	return commandResponse{
-		text:       prompt,
-		forceReply: &forceReply,
+		text: prompt,
 		pending: &pendingInput{
 			command:            message.command,
 			repliedToText:      message.repliedToText,
@@ -71,21 +64,22 @@ func newCommandInputResponse(message commandCommon) commandResponse {
 	}
 }
 
-func commandInputPrompt(message commandCommon) (text, placeholder string) {
+func commandInputPrompt(message commandCommon) string {
 	switch message.command {
 	case "/task":
 		if message.isPrivate {
-			return "Send a reply with:\ntask name\n[@assignee1 @assignee2 ...]\n[description]",
-				"task, optional assignees, description"
+			return "Use Telegram's Reply action on this bot message, then send:\n" +
+				"task name\n[@assignee1 @assignee2 ...]\n[description]"
 		}
-		return "Send a reply with:\ntask name\n@assignee1 @assignee2 ...\n[description]",
-			"task, assignees, description"
+		return "Use Telegram's Reply action on this bot message, then send:\n" +
+			"task name\n@assignee1 @assignee2 ...\n[description]"
 	case "/agenda":
-		return "Send the agenda as a reply.", "agenda"
+		return "Use Telegram's Reply action on this bot message, then send the agenda."
 	case "/deadline":
-		return "Send the deadline as a reply in YYYY-MM-DD format.", "YYYY-MM-DD"
+		return "Use Telegram's Reply action on this bot message, then send the deadline " +
+			"in YYYY-MM-DD format."
 	default:
-		return "Send the command parameters as a reply.", "parameters"
+		return "Use Telegram's Reply action on this bot message, then send the command parameters."
 	}
 }
 
@@ -196,14 +190,15 @@ func parseTweakTrackCallback(data string) (tweakAction, string, bool) {
 	return action, parts[1], true
 }
 
-func tweakActionPrompt(action tweakAction) (text, placeholder string) {
+func tweakActionPrompt(action tweakAction) string {
 	switch action {
 	case tweakActionDemo, tweakActionMix:
-		return "Send a reply with:\nedit name\n[start [end]]\n[description]", "edit, time, description"
+		return "Use Telegram's Reply action on this bot message, then send:\n" +
+			"edit name\n[start [end]]\n[description]"
 	case tweakActionRender:
-		return "Send the iteration number as a reply.", "3"
+		return "Use Telegram's Reply action on this bot message, then send the iteration number."
 	default:
-		return "", ""
+		return ""
 	}
 }
 
@@ -283,7 +278,7 @@ func (p *RequestProcessor) processTweakTrackCallback(
 		return
 	}
 
-	promptText, placeholder := tweakActionPrompt(action)
+	promptText := tweakActionPrompt(action)
 	if callback.From.UserName != "" {
 		promptText = fmt.Sprintf("@%s, %s", callback.From.UserName, promptText)
 	}
@@ -291,11 +286,6 @@ func (p *RequestProcessor) processTweakTrackCallback(
 
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, promptText)
 	msg.ReplyToMessageID = callback.Message.MessageID
-	msg.ReplyMarkup = tgbotapi.ForceReply{
-		ForceReply:            true,
-		InputFieldPlaceholder: placeholder,
-		Selective:             callback.From.UserName != "",
-	}
 
 	sent, err := p.bot.Send(msg)
 	if err != nil {

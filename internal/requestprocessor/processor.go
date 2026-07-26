@@ -390,7 +390,6 @@ type commandResponse struct {
 	text        string
 	document    *fixespdf.Document
 	replyMarkup *tgbotapi.InlineKeyboardMarkup
-	forceReply  *tgbotapi.ForceReply
 	pending     *pendingInput
 }
 
@@ -444,8 +443,6 @@ func (p *RequestProcessor) ProcessRequests() {
 		msg.ParseMode = "HTML"
 		if response.replyMarkup != nil {
 			msg.ReplyMarkup = *response.replyMarkup
-		} else if response.forceReply != nil {
-			msg.ReplyMarkup = *response.forceReply
 		}
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID

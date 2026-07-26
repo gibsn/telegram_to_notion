@@ -10,51 +10,43 @@ import (
 
 func TestCommandsWithoutArgumentsStartInputDialog(t *testing.T) {
 	tests := []struct {
-		name              string
-		text              string
-		wantCommand       string
-		chatType          string
-		repliedToText     string
-		wantPrompt        string
-		wantPlaceholder   string
-		wantReplyContext  string
-		wantSelectiveMode bool
+		name             string
+		text             string
+		wantCommand      string
+		chatType         string
+		repliedToText    string
+		wantPrompt       string
+		wantReplyContext string
 	}{
 		{
-			name:            "private task",
-			text:            "/task",
-			wantCommand:     "/task",
-			chatType:        "private",
-			wantPrompt:      "[@assignee1 @assignee2 ...]",
-			wantPlaceholder: "task, optional assignees, description",
+			name:        "private task",
+			text:        "/task",
+			wantCommand: "/task",
+			chatType:    "private",
+			wantPrompt:  "[@assignee1 @assignee2 ...]",
 		},
 		{
-			name:              "group task",
-			text:              "/task@test_bot",
-			wantCommand:       "/task",
-			chatType:          "group",
-			wantPrompt:        "@assignee1 @assignee2",
-			wantPlaceholder:   "task, assignees, description",
-			wantSelectiveMode: true,
+			name:        "group task",
+			text:        "/task@test_bot",
+			wantCommand: "/task",
+			chatType:    "group",
+			wantPrompt:  "@assignee1 @assignee2",
 		},
 		{
-			name:            "agenda",
-			text:            "/agenda",
-			wantCommand:     "/agenda",
-			chatType:        "private",
-			wantPrompt:      "Send the agenda",
-			wantPlaceholder: "agenda",
+			name:        "agenda",
+			text:        "/agenda",
+			wantCommand: "/agenda",
+			chatType:    "private",
+			wantPrompt:  "send the agenda",
 		},
 		{
-			name:              "deadline keeps task reply",
-			text:              "/deadline",
-			wantCommand:       "/deadline",
-			chatType:          "group",
-			repliedToText:     "Task: https://www.notion.so/12345678123412341234123456789abc",
-			wantPrompt:        "YYYY-MM-DD",
-			wantPlaceholder:   "YYYY-MM-DD",
-			wantReplyContext:  "Task: https://www.notion.so/12345678123412341234123456789abc",
-			wantSelectiveMode: true,
+			name:             "deadline keeps task reply",
+			text:             "/deadline",
+			wantCommand:      "/deadline",
+			chatType:         "group",
+			repliedToText:    "Task: https://www.notion.so/12345678123412341234123456789abc",
+			wantPrompt:       "YYYY-MM-DD",
+			wantReplyContext: "Task: https://www.notion.so/12345678123412341234123456789abc",
 		},
 	}
 
@@ -79,10 +71,8 @@ func TestCommandsWithoutArgumentsStartInputDialog(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Contains(t, response.text, tt.wantPrompt)
+			assert.Contains(t, response.text, "Reply action on this bot message")
 			assert.Contains(t, response.text, "/cancel")
-			require.NotNil(t, response.forceReply)
-			assert.Equal(t, tt.wantPlaceholder, response.forceReply.InputFieldPlaceholder)
-			assert.Equal(t, tt.wantSelectiveMode, response.forceReply.Selective)
 			require.NotNil(t, response.pending)
 			assert.Equal(t, tt.wantCommand, response.pending.command)
 			assert.Equal(t, tt.wantReplyContext, response.pending.repliedToText)
@@ -102,7 +92,6 @@ func TestDeadlineWithoutTaskReplyStillShowsUsageError(t *testing.T) {
 	}})
 
 	require.Error(t, err)
-	assert.Nil(t, response.forceReply)
 	assert.Contains(t, response.text, "Must be a reply to a message with task link")
 }
 
