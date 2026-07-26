@@ -109,7 +109,8 @@ func TestProcessTweakCallbackPromptsAndStoresConversation(t *testing.T) {
 	assert.True(t, strings.HasSuffix(requests[3].method, "/answerCallbackQuery"))
 	assert.True(t, strings.HasSuffix(requests[4].method, "/sendMessage"))
 	assert.Contains(t, requests[4].form.Get("text"), "iteration number")
-	assert.Contains(t, requests[4].form.Get("reply_markup"), `"force_reply":true`)
+	assert.Contains(t, requests[4].form.Get("text"), "Reply action on this bot message")
+	assert.Empty(t, requests[4].form.Get("reply_markup"))
 
 	reply := &tgbotapi.Message{
 		From:           &tgbotapi.User{ID: 20},
