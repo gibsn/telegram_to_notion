@@ -139,7 +139,7 @@ test_description`,
 			},
 		},
 		{
-			name: "private: assignee is present by mistake, so it goes to description",
+			name: "private: optional assignee is present",
 			input: `/task test_task
 @gibsn
 test_description`,
@@ -147,8 +147,21 @@ test_description`,
 			fromUserName: "testuser",
 			want: &notion.CreateTaskRequest{
 				TaskName:    "test_task",
-				Assignees:   []string{"@testuser"},
-				Description: "@gibsn\ntest_description",
+				Assignees:   []string{"@gibsn"},
+				Description: "test_description",
+			},
+		},
+		{
+			name: "private: multiple optional assignees are present",
+			input: `/task test_task
+@gibsn @alexander_zh
+test_description`,
+			isPrivate:    true,
+			fromUserName: "testuser",
+			want: &notion.CreateTaskRequest{
+				TaskName:    "test_task",
+				Assignees:   []string{"@gibsn", "@alexander_zh"},
+				Description: "test_description",
 			},
 		},
 	}
@@ -1306,6 +1319,66 @@ func TestCreateMessageLink(t *testing.T) {
 	}
 }
 
+func TestAppendReplyContext(t *testing.T) {
+	processor := NewRequestProcessor(nil, "", nil)
+
+	tests := []struct {
+		name        string
+		description string
+		message     commandCommon
+		expected    string
+	}{
+		{
+			name:        "description and reply in group chat",
+			description: "Task details",
+			message: commandCommon{
+				repliedToText:      "Original message",
+				repliedToMessageID: 123,
+				chatID:             -1001234567890,
+			},
+			expected: "Task details\n\n" +
+				"Ответ на сообщение: Original message\n" +
+				"Ссылка на сообщение: https://t.me/c/1234567890/123",
+		},
+		{
+			name: "reply without description",
+			message: commandCommon{
+				repliedToText:      "Original message",
+				repliedToMessageID: 456,
+				chatID:             -4910620546,
+			},
+			expected: "Ответ на сообщение: Original message\n" +
+				"Ссылка на сообщение: https://t.me/c/4910620546/456",
+		},
+		{
+			name:        "reply in private chat has no link",
+			description: "Task details",
+			message: commandCommon{
+				repliedToText:      "Original message",
+				repliedToMessageID: 789,
+				chatID:             123456789,
+				isPrivate:          true,
+			},
+			expected: "Task details\n\nОтвет на сообщение: Original message",
+		},
+		{
+			name:        "message is not a reply",
+			description: "Task details",
+			expected:    "Task details",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(
+				t,
+				tt.expected,
+				processor.appendReplyContext(tt.description, tt.message),
+			)
+		})
+	}
+}
+
 func TestExtractCommand_TaskWithAndWithoutMention(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -1455,4 +1528,63 @@ func TestProcessAgenda(t *testing.T) {
 	assert.Contains(t, reply, "Agenda created:")
 	assert.Contains(t, reply, "https://www.notion.so/")
 	assert.Contains(t, reply, "12345678123412341234123456789abc")
+}
+
+func TestProcessTaskAddsReplyToPageBody(t *testing.T) {
+	const (
+		testDBID   = "test-db-id"
+		testPageID = "12345678-1234-1234-1234-123456789abc"
+	)
+
+	expectedDescription := "Task details\n\n" +
+		"Ответ на сообщение: Original message\n" +
+		"Ссылка на сообщение: https://t.me/c/1234567890/123"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/pages", r.URL.Path)
+
+		var payload struct {
+			Children []struct {
+				Paragraph struct {
+					RichText []struct {
+						Text struct {
+							Content string `json:"content"`
+						} `json:"text"`
+					} `json:"rich_text"`
+				} `json:"paragraph"`
+			} `json:"children"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		if assert.Len(t, payload.Children, 1) &&
+			assert.Len(t, payload.Children[0].Paragraph.RichText, 1) {
+			assert.Equal(
+				t,
+				expectedDescription,
+				payload.Children[0].Paragraph.RichText[0].Text.Content,
+			)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": testPageID}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	n := notion.NewNotion("test-token")
+	n.SetAPIBaseURL(server.URL + "/v1/")
+	p := NewRequestProcessor(n, testDBID, nil)
+
+	input := "/task Test task\n@gibsn\nTask details"
+	cmd, err := extractCommand(input, makeBotCommandEntities(input))
+	assert.NoError(t, err)
+	cmd.chatID = -1001234567890
+	cmd.repliedToMessageID = 123
+	cmd.repliedToText = "Original message"
+
+	reply, err := p.processTask(cmd)
+	assert.NoError(t, err)
+	assert.Contains(t, reply, "Task has been successfully created")
+	assert.Contains(t, reply, "https://www.notion.so/12345678123412341234123456789abc")
 }

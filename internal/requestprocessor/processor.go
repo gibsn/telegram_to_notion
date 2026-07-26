@@ -108,7 +108,6 @@ type commandCommon struct {
 	repliedToEntities  []tgbotapi.MessageEntity
 	fromUserName       string
 	isPrivate          bool
-	explicitAssignees  bool
 	chatID             int64
 	fromUserID         int64
 	repliedToMessageID int
@@ -199,6 +198,27 @@ func (p *RequestProcessor) createMessageLink(chatID int64, messageID int, isPriv
 	return link
 }
 
+func (p *RequestProcessor) appendReplyContext(description string, message commandCommon) string {
+	if message.repliedToText == "" {
+		return description
+	}
+
+	messageLink := p.createMessageLink(
+		message.chatID, message.repliedToMessageID, message.isPrivate,
+	)
+
+	if description != "" {
+		description += "\n\n"
+	}
+	description += "Ответ на сообщение: " + message.repliedToText
+
+	if messageLink != "" {
+		description += "\nСсылка на сообщение: " + messageLink
+	}
+
+	return description
+}
+
 func extractCommand(text string, entities []tgbotapi.MessageEntity) (commandCommon, error) {
 	// Only treat message as command if the first entity is a bot_command at offset 0
 	if len(entities) == 0 || entities[0].Type != "bot_command" || entities[0].Offset != 0 {
@@ -220,7 +240,7 @@ func parseTaskCommand(message commandCommon) (
 ) {
 	lines := strings.Split(message.restOfMessage, "\n")
 
-	if (!message.isPrivate || message.explicitAssignees) && len(lines) < 2 {
+	if !message.isPrivate && len(lines) < 2 {
 		return nil, fmt.Errorf("please provide the task's name and an assignee")
 	}
 
@@ -232,28 +252,39 @@ func parseTaskCommand(message commandCommon) (
 		return nil, fmt.Errorf("please provide the task's name")
 	}
 
-	// the second line is the assignee if the message came from the public chat. if the
-	// message came from direct messages then the assignee is set to the sender
-	if len(lines) >= 2 {
-		if message.isPrivate && !message.explicitAssignees {
+	hasExplicitAssignees := !message.isPrivate
+	if message.isPrivate && len(lines) >= 2 {
+		hasExplicitAssignees = isAssigneeLine(lines[1])
+	}
+
+	if hasExplicitAssignees {
+		req.Assignees = strings.Fields(lines[1])
+		if len(lines) >= 3 {
+			req.Description = strings.Join(lines[2:], "\n")
+		}
+	} else {
+		req.Assignees = []string{"@" + message.fromUserName}
+		if len(lines) >= 2 {
 			req.Description = strings.Join(lines[1:], "\n")
-		} else {
-			req.Assignees = strings.Fields(lines[1])
 		}
 	}
 
-	// the third line is only present in public chats and is optional. it contains
-	// description if present
-	if len(lines) >= 3 && (!message.isPrivate || message.explicitAssignees) {
-		req.Description = strings.Join(lines[2:], "\n")
-	}
-
-	// set assignee to the sender if the message came from direct messages
-	if message.isPrivate && !message.explicitAssignees {
-		req.Assignees = []string{"@" + message.fromUserName}
-	}
-
 	return req, nil
+}
+
+func isAssigneeLine(line string) bool {
+	assignees := strings.Fields(line)
+	if len(assignees) == 0 {
+		return false
+	}
+
+	for _, assignee := range assignees {
+		if len(assignee) < 2 || !strings.HasPrefix(assignee, "@") {
+			return false
+		}
+	}
+
+	return true
 }
 
 func parseAgendaCommand(message commandCommon) (*notion.CreateTaskRequest, error) {
@@ -588,6 +619,7 @@ func (p *RequestProcessor) processTask(message commandCommon) (string, error) {
 	}
 
 	req.NotionDBID = p.notionDBID
+	req.Description = p.appendReplyContext(req.Description, message)
 
 	assigneesResolved, err := p.nameResolver.ResolveArr(req.Assignees)
 	if err != nil {
@@ -1047,21 +1079,7 @@ func (p *RequestProcessor) processTweak(message commandCommon) (string, error) {
 	}
 
 	// Build explanation field with original description and replied message info
-	explanation := req.Description
-	if message.repliedToText != "" {
-		messageLink := p.createMessageLink(
-			message.chatID, message.repliedToMessageID, message.isPrivate,
-		)
-
-		if explanation != "" {
-			explanation += "\n\n"
-		}
-		explanation += "Ответ на сообщение: " + message.repliedToText
-
-		if messageLink != "" {
-			explanation += "\nСсылка на сообщение: " + messageLink
-		}
-	}
+	explanation := p.appendReplyContext(req.Description, message)
 
 	r := &notion.CreateTweakRequest{
 		Title:            req.EditName,
