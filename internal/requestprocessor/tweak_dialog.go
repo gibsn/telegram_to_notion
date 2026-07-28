@@ -36,6 +36,7 @@ type pendingInput struct {
 	action             tweakAction
 	trackName          string
 	promptMessageID    int
+	dialogMessageIDs   []int
 	expiresAt          time.Time
 	repliedToText      string
 	repliedToEntities  []tgbotapi.MessageEntity
@@ -274,6 +275,7 @@ func (p *RequestProcessor) processTweakTrackCallback(
 		if err != nil {
 			log.Printf("Could not process interactive tweak towork: %v", err)
 		}
+		response.dialogMessageIDs = callbackDialogMessageIDs(callback.Message)
 		p.sendCallbackResponse(callback, response)
 		return
 	}
@@ -294,10 +296,15 @@ func (p *RequestProcessor) processTweakTrackCallback(
 	}
 
 	pending := pendingInput{
-		action:          action,
-		trackName:       trackName,
-		promptMessageID: sent.MessageID,
+		action:           action,
+		trackName:        trackName,
+		promptMessageID:  sent.MessageID,
+		dialogMessageIDs: callbackDialogMessageIDs(callback.Message),
 	}
+	pending.dialogMessageIDs = appendUniqueMessageID(
+		pending.dialogMessageIDs,
+		sent.MessageID,
+	)
 	if commandMessage := callback.Message.ReplyToMessage; commandMessage != nil &&
 		commandMessage.ReplyToMessage != nil {
 		originalMessage := commandMessage.ReplyToMessage
@@ -323,6 +330,7 @@ func (p *RequestProcessor) sendCallbackResponse(
 	if _, err := p.bot.Send(msg); err != nil {
 		log.Printf("Could not send callback response to Telegram: %v", err)
 	}
+	p.deleteDialogMessages(callback.Message.Chat.ID, response.dialogMessageIDs)
 }
 
 func (p *RequestProcessor) answerCallback(callbackID, text string) {
@@ -390,12 +398,16 @@ func (p *RequestProcessor) processPendingInputReply(
 	if !found {
 		return commandResponse{}, errNotACommand
 	}
+	dialogMessageIDs := pending.dialogMessages()
 	if expired {
 		command := pending.command
 		if command == "" {
 			command = "/tweak"
 		}
-		return commandResponse{text: "This action has expired. Send " + command + " again."}, nil
+		return commandResponse{
+			text:             "This action has expired. Send " + command + " again.",
+			dialogMessageIDs: dialogMessageIDs,
+		}, nil
 	}
 
 	command := pendingInputCommand(pending, message)
@@ -412,21 +424,25 @@ func (p *RequestProcessor) processPendingInputReply(
 		default:
 			return commandResponse{}, errors.New("unknown pending command")
 		}
-		return commandResponse{text: text}, err
+		return commandResponse{text: text, dialogMessageIDs: dialogMessageIDs}, err
 	}
 
 	switch pending.action {
 	case tweakActionDemo, tweakActionMix:
 		text, err := withErrorReply(command, p.processTweak)
-		return commandResponse{text: text}, err
+		return commandResponse{text: text, dialogMessageIDs: dialogMessageIDs}, err
 	case tweakActionRender:
-		return withUsageErrorReply(
+		response, err := withUsageErrorReply(
 			command,
 			"$track $iteration_number",
 			p.processTweakRenderResponse,
 		)
+		response.dialogMessageIDs = dialogMessageIDs
+		return response, err
 	case tweakActionToWork:
-		return withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
+		response, err := withUsageErrorReply(command, "$track", p.processTweakToWorkResponse)
+		response.dialogMessageIDs = dialogMessageIDs
+		return response, err
 	default:
 		return commandResponse{}, errors.New("unknown pending tweak action")
 	}
@@ -467,16 +483,59 @@ func pendingInputCommand(pending pendingInput, message *tgbotapi.Message) comman
 	}
 }
 
-func (p *RequestProcessor) processCancel(message commandCommon) string {
+func (p *RequestProcessor) processCancel(message commandCommon) (string, []int) {
 	key := conversationKey{chatID: message.chatID, userID: message.fromUserID}
 
 	p.pendingInputsMu.Lock()
 	defer p.pendingInputsMu.Unlock()
 
 	if _, ok := p.pendingInputs[key]; !ok {
-		return "There is no active action."
+		return "There is no active action.", nil
 	}
 
+	pending := p.pendingInputs[key]
 	delete(p.pendingInputs, key)
-	return "Action cancelled."
+	return "Action cancelled.", pending.dialogMessages()
+}
+
+func (pending pendingInput) dialogMessages() []int {
+	messageIDs := append([]int(nil), pending.dialogMessageIDs...)
+	return appendUniqueMessageID(messageIDs, pending.promptMessageID)
+}
+
+func callbackDialogMessageIDs(message *tgbotapi.Message) []int {
+	if message == nil {
+		return nil
+	}
+
+	messageIDs := appendUniqueMessageID(nil, message.MessageID)
+	if message.ReplyToMessage != nil {
+		messageIDs = appendUniqueMessageID(messageIDs, message.ReplyToMessage.MessageID)
+	}
+	return messageIDs
+}
+
+func appendUniqueMessageID(messageIDs []int, messageID int) []int {
+	if messageID == 0 {
+		return messageIDs
+	}
+	for _, current := range messageIDs {
+		if current == messageID {
+			return messageIDs
+		}
+	}
+	return append(messageIDs, messageID)
+}
+
+func (p *RequestProcessor) deleteDialogMessages(chatID int64, messageIDs []int) {
+	for _, messageID := range messageIDs {
+		if _, err := p.bot.Request(tgbotapi.NewDeleteMessage(chatID, messageID)); err != nil {
+			log.Printf(
+				"Could not delete Telegram dialog message %d in chat %d: %v",
+				messageID,
+				chatID,
+				err,
+			)
+		}
+	}
 }
