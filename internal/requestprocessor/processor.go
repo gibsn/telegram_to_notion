@@ -387,10 +387,11 @@ type commandHandler func(commandCommon) (string, error)
 type commandResponseHandler func(commandCommon) (commandResponse, error)
 
 type commandResponse struct {
-	text        string
-	document    *fixespdf.Document
-	replyMarkup *tgbotapi.InlineKeyboardMarkup
-	pending     *pendingInput
+	text             string
+	document         *fixespdf.Document
+	replyMarkup      *tgbotapi.InlineKeyboardMarkup
+	pending          *pendingInput
+	dialogMessageIDs []int
 }
 
 func (p *RequestProcessor) ProcessRequests() {
@@ -436,6 +437,7 @@ func (p *RequestProcessor) ProcessRequests() {
 			if _, err := p.bot.Send(doc); err != nil {
 				log.Printf("Could not send document to Telegram: %v", err)
 			}
+			p.deleteDialogMessages(update.Message.Chat.ID, response.dialogMessageIDs)
 			continue
 		}
 
@@ -450,13 +452,19 @@ func (p *RequestProcessor) ProcessRequests() {
 		sent, err := p.bot.Send(msg)
 		if err != nil {
 			log.Printf("Could not send message to Telegram: %v", err)
+			p.deleteDialogMessages(update.Message.Chat.ID, response.dialogMessageIDs)
 			continue
 		}
 		if response.pending != nil {
 			pending := *response.pending
 			pending.promptMessageID = sent.MessageID
+			pending.dialogMessageIDs = appendUniqueMessageID(
+				pending.dialogMessageIDs,
+				sent.MessageID,
+			)
 			p.setPendingInput(update.Message.Chat.ID, update.Message.From.ID, pending)
 		}
+		p.deleteDialogMessages(update.Message.Chat.ID, response.dialogMessageIDs)
 	}
 }
 
@@ -507,7 +515,7 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 	case "/tracks":
 		response.text, err = withErrorReply(message, p.processTracks)
 	case "/cancel":
-		response.text = p.processCancel(message)
+		response.text, response.dialogMessageIDs = p.processCancel(message)
 	case "/tweak":
 		switch {
 		case isTweakMenuCommand(message):

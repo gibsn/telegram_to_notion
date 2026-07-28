@@ -253,14 +253,23 @@ func TestPendingTweakExpiresAndCanBeCancelled(t *testing.T) {
 	p := NewRequestProcessor(nil, "", nil)
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 	p.now = func() time.Time { return now }
-	p.setPendingInput(30, 20, pendingInput{action: tweakActionDemo, promptMessageID: 40})
+	p.setPendingInput(30, 20, pendingInput{
+		action:           tweakActionDemo,
+		promptMessageID:  40,
+		dialogMessageIDs: []int{38, 39, 40},
+	})
 
-	assert.Equal(t, "Action cancelled.", p.processCancel(commandCommon{chatID: 30, fromUserID: 20}))
+	text, messageIDs := p.processCancel(commandCommon{chatID: 30, fromUserID: 20})
+	assert.Equal(t, "Action cancelled.", text)
+	assert.Equal(t, []int{38, 39, 40}, messageIDs)
+
+	text, messageIDs = p.processCancel(commandCommon{chatID: 30, fromUserID: 20})
 	assert.Equal(
 		t,
 		"There is no active action.",
-		p.processCancel(commandCommon{chatID: 30, fromUserID: 20}),
+		text,
 	)
+	assert.Nil(t, messageIDs)
 
 	p.setPendingInput(30, 20, pendingInput{action: tweakActionDemo, promptMessageID: 40})
 	now = now.Add(conversationTTL)
@@ -273,6 +282,68 @@ func TestPendingTweakExpiresAndCanBeCancelled(t *testing.T) {
 	_, found, expired := p.takePendingInput(reply)
 	assert.True(t, found)
 	assert.True(t, expired)
+}
+
+func TestPendingReplyIncludesDialogMessagesForCleanupOnError(t *testing.T) {
+	p := NewRequestProcessor(nil, "", nil)
+	p.setPendingInput(30, 20, pendingInput{
+		command:          "/task",
+		promptMessageID:  40,
+		dialogMessageIDs: []int{40},
+	})
+
+	response, err := p.processPendingInputReply(&tgbotapi.Message{
+		From: &tgbotapi.User{ID: 20, UserName: "gibsn"},
+		Chat: &tgbotapi.Chat{ID: 30, Type: "group"},
+		Text: "task without assignee",
+		ReplyToMessage: &tgbotapi.Message{
+			MessageID: 40,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, []int{40}, response.dialogMessageIDs)
+}
+
+func TestCallbackDialogMessageIDsIncludesMenusOnly(t *testing.T) {
+	command := &tgbotapi.Message{MessageID: 10}
+	actionMenu := &tgbotapi.Message{MessageID: 11, ReplyToMessage: command}
+	trackMenu := &tgbotapi.Message{MessageID: 12, ReplyToMessage: actionMenu}
+
+	assert.Equal(t, []int{12, 11}, callbackDialogMessageIDs(trackMenu))
+}
+
+func TestDeleteDialogMessagesRequestsTelegramDeletion(t *testing.T) {
+	var requests []telegramRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		requests = append(requests, telegramRequest{method: r.URL.Path, form: r.Form})
+		w.Header().Set("Content-Type", "application/json")
+		result := interface{}(true)
+		if strings.HasSuffix(r.URL.Path, "/getMe") {
+			result = map[string]interface{}{
+				"id": 1, "is_bot": true, "first_name": "test", "username": "test_bot",
+			}
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true, "result": result,
+		}))
+	}))
+	defer server.Close()
+
+	bot, err := tgbotapi.NewBotAPIWithAPIEndpoint("test-token", server.URL+"/bot%s/%s")
+	require.NoError(t, err)
+	p := NewRequestProcessor(nil, "", bot)
+
+	p.deleteDialogMessages(30, []int{11, 12})
+
+	require.Len(t, requests, 3)
+	for i, messageID := range []string{"11", "12"} {
+		request := requests[i+1]
+		assert.True(t, strings.HasSuffix(request.method, "/deleteMessage"))
+		assert.Equal(t, "30", request.form.Get("chat_id"))
+		assert.Equal(t, messageID, request.form.Get("message_id"))
+	}
 }
 
 func TestParseTweakCallback(t *testing.T) {
