@@ -324,7 +324,7 @@ func (p *RequestProcessor) sendCallbackResponse(
 	msg.ParseMode = "HTML"
 	msg.ReplyToMessageID = callback.Message.MessageID
 	if response.replyMarkup != nil {
-		msg.ReplyMarkup = *response.replyMarkup
+		msg.ReplyMarkup = response.replyMarkup
 	}
 
 	if _, err := p.bot.Send(msg); err != nil {

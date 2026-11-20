@@ -389,7 +389,7 @@ type commandResponseHandler func(commandCommon) (commandResponse, error)
 type commandResponse struct {
 	text             string
 	document         *fixespdf.Document
-	replyMarkup      *tgbotapi.InlineKeyboardMarkup
+	replyMarkup      interface{}
 	pending          *pendingInput
 	dialogMessageIDs []int
 }
@@ -444,7 +444,7 @@ func (p *RequestProcessor) ProcessRequests() {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, response.text)
 		msg.ParseMode = "HTML"
 		if response.replyMarkup != nil {
-			msg.ReplyMarkup = *response.replyMarkup
+			msg.ReplyMarkup = response.replyMarkup
 		}
 		// Reply to the command (and into the same forum topic/thread if present)
 		msg.ReplyToMessageID = update.Message.MessageID
@@ -516,6 +516,9 @@ func (p *RequestProcessor) processRequest(update tgbotapi.Update) (commandRespon
 		response.text, err = withErrorReply(message, p.processTracks)
 	case "/cancel":
 		response.text, response.dialogMessageIDs = p.processCancel(message)
+		// Old ForceReply messages can be restored by Telegram clients after the
+		// server-side conversation is gone. Reset that state even without a pending input.
+		response.replyMarkup = tgbotapi.NewRemoveKeyboard(true)
 	case "/tweak":
 		switch {
 		case isTweakMenuCommand(message):

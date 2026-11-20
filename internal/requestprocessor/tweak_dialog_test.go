@@ -140,10 +140,12 @@ func TestProcessTweakWithoutArgumentsShowsMenu(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Choose an action for /tweak:", response.text)
 	require.NotNil(t, response.replyMarkup)
-	require.Len(t, response.replyMarkup.InlineKeyboard, 2)
+	markup, ok := response.replyMarkup.(*tgbotapi.InlineKeyboardMarkup)
+	require.True(t, ok)
+	require.Len(t, markup.InlineKeyboard, 2)
 
 	var callbackData []string
-	for _, row := range response.replyMarkup.InlineKeyboard {
+	for _, row := range markup.InlineKeyboard {
 		for _, button := range row {
 			require.NotNil(t, button.CallbackData)
 			callbackData = append(callbackData, *button.CallbackData)
